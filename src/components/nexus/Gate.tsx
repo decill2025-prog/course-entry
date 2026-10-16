@@ -10,7 +10,7 @@ function Typer() {
   const [n, setN] = useState(0);
   const [del, setDel] = useState(false);
   useEffect(() => {
-    const w = WORDS[i];
+    const w = WORDS[i] ?? "";
     const t = setTimeout(
       () => {
         if (!del && n < w.length) setN(n + 1);
@@ -25,7 +25,7 @@ function Typer() {
   return (
     <h1 className="font-display text-4xl font-bold leading-tight tracking-tight sm:text-6xl">
       <span className="text-muted-foreground">We built: </span>
-      <span className="animate-hue glow-text">{WORDS[i].slice(0, n)}</span>
+      <span className="animate-hue glow-text">{(WORDS[i] ?? "").slice(0, n)}</span>
       <span className="ml-1 inline-block h-[0.9em] w-[3px] translate-y-1 animate-pulse bg-accent" />
     </h1>
   );

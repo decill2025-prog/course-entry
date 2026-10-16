@@ -92,7 +92,7 @@ export function Hub({ profile, onExit }: { profile: { level: Level; course: stri
                       <p className="leading-relaxed text-foreground/85">{p.body}</p>
                     </div>
                     <div className="grid grid-cols-3 border-t border-border">
-                      <Action onClick={() => setLiked((l) => ({ ...l, [p.id]: !l[p.id] }))} active={liked[p.id]}>
+                      <Action onClick={() => setLiked((l) => ({ ...l, [p.id]: !l[p.id] }))} active={!!liked[p.id]}>
                         <Heart className={cn("h-4 w-4", liked[p.id] && "fill-current")} /> Like
                       </Action>
                       <Action onClick={() => share(p.title)}><Share2 className="h-4 w-4" /> Share</Action>
