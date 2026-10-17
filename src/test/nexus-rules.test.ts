@@ -15,3 +15,8 @@ describe("nexus rules", () => {
     expect(isExpired(t, 73 * 3600e3)).toBe(true);
   });
 });
+
+import { CLEARANCE } from "@/lib/nexus-data";
+describe("fresher clearance", () => {
+  it("has 13 steps", () => expect(CLEARANCE).toHaveLength(13));
+});
