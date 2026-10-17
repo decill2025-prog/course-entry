@@ -1,7 +1,7 @@
 # Roadmap
-- [ ] Course/level-matched endless feed
-- [ ] Listen / View / Share buttons
-- [ ] View page with memory trick + exam trap
-- [ ] Bigger top bar, real Jarvis orb, hide-on-scroll dock
-- [ ] Redesign Freshers page
+- [x] Course/level-matched endless feed
+- [x] Listen / View / Share buttons
+- [x] View page with memory trick + exam trap
+- [x] Bigger top bar, real Jarvis orb, hide-on-scroll dock
+- [x] Redesign Freshers page
 - [ ] Voice: needs Deepgram key
