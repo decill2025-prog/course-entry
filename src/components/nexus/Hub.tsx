@@ -24,7 +24,7 @@ async function sharePost(id: string, title: string) {
   }
 }
 
-function Avatar({ gold }: { gold?: boolean }) {
+function Avatar({ gold }: { gold?: boolean | undefined }) {
   return gold ? (
     <img src="/futes-crest.jpg" alt="" className="h-10 w-10 rounded-full object-cover ring-2 ring-gold" />
   ) : (
@@ -32,7 +32,7 @@ function Avatar({ gold }: { gold?: boolean }) {
   );
 }
 
-function Author({ gold, name, meta }: { gold?: boolean; name: string; meta: string }) {
+function Author({ gold, name, meta }: { gold?: boolean | undefined; name: string; meta: string }) {
   return (
     <div className="flex items-center gap-3">
       <Avatar gold={gold} />
