@@ -20,3 +20,18 @@ import { CLEARANCE } from "@/lib/nexus-data";
 describe("fresher clearance", () => {
   it("has 13 steps", () => expect(CLEARANCE).toHaveLength(13));
 });
+
+import { lessonsFor, allLessons } from "@/lib/lessons";
+describe("course-matched feed", () => {
+  it("never shows biology to 200L computing students", () => {
+    const codes = lessonsFor("200 Level", "Computing & Cyber Systems").map((l) => l.code);
+    expect(codes.some((c) => c.startsWith("BIO") || c.startsWith("BCH"))).toBe(false);
+  });
+  it("shows only 200-level lessons to 200L", () => {
+    const codes = lessonsFor("200 Level", "Natural & Applied Sciences").map((l) => l.code);
+    expect(codes.every((c) => /\s2\d\d$/.test(c))).toBe(true);
+  });
+  it("every lesson has a memory trick and exam trap", () => {
+    expect(allLessons().every((l) => l.trick && l.trap && l.points.length >= 3)).toBe(true);
+  });
+});
