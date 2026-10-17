@@ -204,3 +204,15 @@ body { font-family: var(--font-sans); background: var(--gradient-canvas); min-he
 @utility orb-pulse { animation: orb-pulse 2.6s ease-in-out infinite; }
 @utility bg-orb { background: var(--gradient-orb); }
 @utility card-soft { background: oklch(0.2 0.03 262 / 0.55); backdrop-filter: blur(20px); border: 1px solid oklch(1 0 0 / 7%); }
+
+/* Solid, lag-free post surface (no blur on scrolling content) */
+@utility card-solid { background: oklch(0.19 0.03 262); border: 1px solid oklch(1 0 0 / 7%); box-shadow: 0 10px 30px -18px oklch(0 0 0 / 0.8); }
+@utility gold-ring { box-shadow: 0 0 0 1px oklch(0.82 0.14 85 / 0.35), 0 12px 40px -20px oklch(0.82 0.14 85 / 0.5); }
+
+/* Jarvis arc-reactor orb */
+@keyframes spin-rev { to { transform: rotate(-360deg) } }
+@keyframes core-breathe { 0%,100% { transform: scale(0.92); opacity: .85 } 50% { transform: scale(1.05); opacity: 1 } }
+@utility jarvis { position: relative; border-radius: 9999px; background: radial-gradient(circle, oklch(0.25 0.08 240) 0%, oklch(0.12 0.03 260) 70%); box-shadow: 0 0 28px oklch(0.75 0.15 220 / 0.55), inset 0 0 18px oklch(0.75 0.15 220 / 0.35); }
+@utility jarvis-ring { position: absolute; border-radius: 9999px; border: 2px solid transparent; border-top-color: oklch(0.85 0.14 210); border-bottom-color: oklch(0.6 0.2 250); animation: spin 3s linear infinite; will-change: transform; }
+@utility jarvis-ring-rev { position: absolute; border-radius: 9999px; border: 1.5px dashed oklch(0.8 0.13 215 / 0.7); animation: spin-rev 6s linear infinite; will-change: transform; }
+@utility jarvis-core { position: absolute; border-radius: 9999px; background: radial-gradient(circle at 50% 45%, oklch(0.98 0.03 210), oklch(0.8 0.14 215) 35%, oklch(0.5 0.2 250) 75%); box-shadow: 0 0 18px oklch(0.85 0.14 210); animation: core-breathe 2.4s ease-in-out infinite; will-change: transform; }
