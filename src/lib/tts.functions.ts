@@ -4,7 +4,7 @@ import { createServerFn } from "@tanstack/react-start";
 export const speak = createServerFn({ method: "POST" })
   .inputValidator((d: { text: string }) => ({ text: String(d.text ?? "").slice(0, 1200) }))
   .handler(async ({ data }) => {
-    const key = process.env.DEEPGRAM_API_KEY;
+    const key = process.env["DEEPGRAM_API_KEY"];
     if (!key || !data.text) return { audio: null as string | null };
     const res = await fetch("https://api.deepgram.com/v1/speak?model=aura-2-thalia-en", {
       method: "POST",
