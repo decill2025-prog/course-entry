@@ -27,14 +27,14 @@ async function sharePost(id: string, title: string) {
   catch { window.open(`https://wa.me/?text=${encodeURIComponent(`${text}\n${url}`)}`, "_blank"); }
 }
 
-function Avatar({ gold, size = 10 }: { gold?: boolean; size?: number }) {
+function Avatar({ gold, size = 10 }: { gold?: boolean | undefined; size?: number }) {
   const s = size === 10 ? "h-10 w-10" : "h-12 w-12";
   return gold
     ? <img src="/futes-crest.jpg" alt="" className={`${s} shrink-0 rounded-full object-cover ring-2 ring-gold`} />
     : <div className={`${s} grid shrink-0 place-items-center rounded-full bg-orb p-[2px]`}><div className="grid h-full w-full place-items-center rounded-full bg-sapphire font-display text-xs font-bold text-primary">AI</div></div>;
 }
 
-function Author({ gold, name, meta }: { gold?: boolean; name: string; meta: string }) {
+function Author({ gold, name, meta }: { gold?: boolean | undefined; name: string; meta: string }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
       <Avatar gold={gold} />
