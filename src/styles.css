@@ -216,3 +216,9 @@ body { font-family: var(--font-sans); background: var(--gradient-canvas); min-he
 @utility jarvis-ring { position: absolute; border-radius: 9999px; border: 2px solid transparent; border-top-color: oklch(0.85 0.14 210); border-bottom-color: oklch(0.6 0.2 250); animation: spin 3s linear infinite; will-change: transform; }
 @utility jarvis-ring-rev { position: absolute; border-radius: 9999px; border: 1.5px dashed oklch(0.8 0.13 215 / 0.7); animation: spin-rev 6s linear infinite; will-change: transform; }
 @utility jarvis-core { position: absolute; border-radius: 9999px; background: radial-gradient(circle at 50% 45%, oklch(0.98 0.03 210), oklch(0.8 0.14 215) 35%, oklch(0.5 0.2 250) 75%); box-shadow: 0 0 18px oklch(0.85 0.14 210); animation: core-breathe 2.4s ease-in-out infinite; will-change: transform; }
+
+/* Chromatic course titles + lag-free feed */
+@keyframes shimmer { to { background-position: 200% center } }
+@utility text-shimmer { background: linear-gradient(90deg, oklch(0.85 0.14 210), oklch(0.75 0.2 280), oklch(0.85 0.15 85), oklch(0.85 0.14 210)); background-size: 200% auto; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 6s linear infinite; }
+@utility feed-card { content-visibility: auto; contain-intrinsic-size: auto 640px; }
+@utility dock-glass { background: oklch(0.15 0.03 262 / 0.96); border: 1px solid oklch(0.75 0.15 220 / 0.18); box-shadow: 0 -1px 0 oklch(0.75 0.15 220 / 0.25) inset, 0 18px 40px -10px oklch(0 0 0 / 0.8); }

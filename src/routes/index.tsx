@@ -32,5 +32,5 @@ function Index() {
   }, []);
   if (!ready) return <div className="min-h-dvh bg-canvas" />;
   if (!profile) return <Gate onEnter={(p) => { localStorage.setItem(KEY, JSON.stringify(p)); setProfile(p); }} />;
-  return <Hub profile={profile} onExit={() => { localStorage.removeItem(KEY); setProfile(null); }} />;
+  return <Hub profile={profile} onSwitch={(p) => { localStorage.setItem(KEY, JSON.stringify(p)); setProfile(p); }} onExit={() => { localStorage.removeItem(KEY); setProfile(null); }} />;
 }
