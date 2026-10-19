@@ -9,7 +9,7 @@ const toB64 = (buf: ArrayBuffer) => {
 
 type Turn = { role: "user" | "assistant"; content: string };
 
-/** Jarvis brain: Groq llama-3.1-8b-instant, short "senior coursemate" answers. */
+/** Jarvis brain: Groq openai/gpt-oss-20b (fastest model available on the developer plan), short "senior coursemate" answers. */
 export const askJarvis = createServerFn({ method: "POST" })
   .inputValidator((d: { question: string; course: string; level: string; history?: Turn[] | undefined }) => ({
     question: String(d.question ?? "").slice(0, 600),
@@ -29,9 +29,10 @@ export const askJarvis = createServerFn({ method: "POST" })
         method: "POST",
         headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "llama-3.1-8b-instant",
+          model: "openai/gpt-oss-20b",
+          reasoning_effort: "low",
           temperature: 0.5,
-          max_tokens: 220,
+          max_tokens: 600,
           messages: [{ role: "system", content: system }, ...data.history, { role: "user", content: data.question }],
         }),
       });
