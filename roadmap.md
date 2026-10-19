@@ -2,6 +2,10 @@
 - [x] Course/level-matched endless feed
 - [x] Listen / View / Share buttons
 - [x] View page with memory trick + exam trap
-- [x] Bigger top bar, real Jarvis orb, hide-on-scroll dock
-- [x] Redesign Freshers page
-- [ ] Voice: needs Deepgram key
+- [x] Bigger top bar with level/course switcher
+- [x] Freshers tab replaced by Study Vault (checklist lives in pinned news post)
+- [x] Faculty AI avatars from user's logos
+- [x] Live Jarvis: Groq brain + Groq Whisper voice input + Groq/Deepgram voice output
+- [ ] Official 13-step clearance list (waiting on user)
+- [ ] Real departmental timetable (waiting on user)
+- [ ] Offline voice pack (KittenTTS) — later
