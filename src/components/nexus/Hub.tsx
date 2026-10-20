@@ -89,7 +89,7 @@ function Actions({ playing, onListen, onView, onShare }: { playing: boolean; onL
   );
 }
 
-function JarvisOrb({ size }: { size: number }) {
+function NexusOrb({ size }: { size: number }) {
   return (
     <span className="jarvis block" style={{ width: size, height: size }}>
       <span className="jarvis-ring" style={{ inset: 3 }} />
@@ -192,7 +192,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
       <main className="mx-auto max-w-xl space-y-4 px-3 pb-36 pt-[84px]">
         {tab === "feed" ? (
           <>
-            <article className="card-solid gold-ring overflow-hidden rounded-3xl animate-rise">
+            <article className="card-solid gold-ring overflow-hidden rounded-3xl animate-fade">
               <div className="p-4">
                 <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-gold"><Pin className="h-3.5 w-3.5" /> Pinned by FUTES News</div>
                 <Author gold name="FUTES News" meta="Official campus press · Freshers" />
@@ -237,16 +237,16 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
           </div>
           <button
             onClick={() => setOrb(true)}
-            aria-label="Open Jarvis"
+            aria-label="Open Nexus"
             className={`pointer-events-auto absolute left-1/2 top-0 -ml-[38px] -mt-[30px] rounded-full bg-graphite p-1.5 ring-1 ring-primary/30 transition-transform duration-300 ease-out will-change-transform ${hidden ? "translate-y-[40px] scale-[0.72]" : ""}`}
           >
-            <JarvisOrb size={64} />
+            <NexusOrb size={64} />
           </button>
         </div>
       </nav>
 
       {viewed && (
-        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-canvas animate-rise">
+        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-canvas animate-fade">
           <div className="mx-auto max-w-xl pb-12">
             <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-graphite/95 px-3 py-3">
               <button onClick={closeView} className="grid h-10 w-10 place-items-center rounded-full hover:bg-secondary" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
@@ -273,14 +273,14 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
                 </ul>
                 <p className="mt-4 text-sm text-muted-foreground">Close your eyes, say the trick out loud, then recall the 3 points. That's it — it sticks.</p>
               </div>
-              <button onClick={() => { closeView(); setOrb(true); }} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 font-semibold text-primary-foreground"><Mic className="h-4 w-4" /> Still confused? Ask Jarvis</button>
+              <button onClick={() => { closeView(); setOrb(true); }} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 font-semibold text-primary-foreground"><Mic className="h-4 w-4" /> Still confused? Ask Nexus</button>
             </div>
           </div>
         </div>
       )}
 
       {checklist && (
-        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-canvas animate-rise">
+        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-canvas animate-fade">
           <div className="mx-auto max-w-xl pb-12">
             <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-graphite/95 px-3 py-3">
               <button onClick={() => { setChecklist(false); history.replaceState(null, "", "/"); }} className="grid h-10 w-10 place-items-center rounded-full hover:bg-secondary" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
@@ -305,7 +305,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
 
       {switcher && <Switcher profile={profile} onClose={() => setSwitcher(false)} onExit={onExit} onSave={(p) => { setSwitcher(false); setRounds(1); window.scrollTo({ top: 0 }); onSwitch(p); toast.success(`Switched to ${p.level.replace(" Level", "L")} · ${courseName(p.course)}`); }} />}
 
-      {orb && <Jarvis lessons={lessons} course={course} level={profile.level} faculty={profile.faculty}
+      {orb && <Nexus lessons={lessons} course={course} level={profile.level} faculty={profile.faculty}
         onClose={() => { stopVoice(); setOrb(false); }}
         onOpen={(id) => { setOrb(false); if (id === "checklist") setChecklist(true); else if (id === "vault") go("vault"); else setView(id); }}
         onNote={(n) => setNotes((x) => [n, ...x])} />}
@@ -329,7 +329,7 @@ function Vault({ lessons, course, lvl, faculty, onOpen, onAsk }: { lessons: Less
   const [flip, setFlip] = useState<string | null>(null);
   return (
     <>
-      <section className="card-solid relative overflow-hidden rounded-3xl p-5 animate-rise">
+      <section className="card-solid relative overflow-hidden rounded-3xl p-5 animate-fade">
         <div className="flex items-center gap-4">
           <Avatar faculty={faculty} size={56} />
           <div className="min-w-0">
@@ -423,8 +423,8 @@ function Switcher({ profile, onClose, onSave, onExit }: { profile: Profile; onCl
 
 type Msg = { from: "ai" | "me"; text: string };
 
-function Jarvis({ lessons, course, level, faculty, onClose, onOpen, onNote }: { lessons: Lesson[]; course: string; level: Level; faculty: string; onClose: () => void; onOpen: (id: string) => void; onNote: (n: string) => void }) {
-  const [msgs, setMsgs] = useState<Msg[]>([{ from: "ai", text: `Hey, I'm Jarvis — your ${course} coursemate. Ask me anything, or tap the mic.` }]);
+function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { lessons: Lesson[]; course: string; level: Level; faculty: string; onClose: () => void; onOpen: (id: string) => void; onNote: (n: string) => void }) {
+  const [msgs, setMsgs] = useState<Msg[]>([{ from: "ai", text: `Hey, I'm Nexus — your ${course} coursemate. Ask me anything, or tap the mic.` }]);
   const [input, setInput] = useState("");
   const [state, setState] = useState<"idle" | "listening" | "thinking" | "speaking">("idle");
   const rec = useRef<MediaRecorder | null>(null);
@@ -486,17 +486,17 @@ function Jarvis({ lessons, course, level, faculty, onClose, onOpen, onNote }: { 
       };
       rec.current = mr; mr.start(); setState("listening");
       setTimeout(() => mr.state === "recording" && mr.stop(), 12000);
-    } catch { toast.error("Allow microphone access to talk to Jarvis."); }
+    } catch { toast.error("Allow microphone access to talk to Nexus."); }
   };
 
   const label = { idle: "Tap the mic and talk", listening: "Listening… tap to send", thinking: "Thinking…", speaking: "Speaking…" }[state];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/85 animate-rise" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/85 animate-fade" onClick={onClose}>
       <div className="card-solid flex h-[78dvh] w-full max-w-xl flex-col rounded-t-[2rem] px-4 pb-[max(env(safe-area-inset-bottom),16px)] pt-3" onClick={(e) => e.stopPropagation()}>
         <div className="relative flex h-[132px] shrink-0 flex-col items-center justify-center gap-1.5">
-          <div className={`transition-opacity duration-300 ${state === "idle" ? "opacity-90" : "opacity-100"}`}><JarvisOrb size={80} /></div>
-          <p className="flex items-center gap-1 font-display text-base font-bold">Jarvis <BadgeCheck className="h-4 w-4 fill-primary text-primary-foreground" /><span className="ml-1 font-sans text-xs font-normal text-muted-foreground">· {label}</span></p>
+          <div className={`transition-opacity duration-300 ${state === "idle" ? "opacity-90" : "opacity-100"}`}><NexusOrb size={80} /></div>
+          <p className="flex items-center gap-1 font-display text-base font-bold">Nexus <BadgeCheck className="h-4 w-4 fill-primary text-primary-foreground" /><span className="ml-1 font-sans text-xs font-normal text-muted-foreground">· {label}</span></p>
           <button onClick={onClose} aria-label="Close" className="absolute right-0 top-0 grid h-9 w-9 place-items-center rounded-full hover:bg-secondary"><X className="h-5 w-5" /></button>
         </div>
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain py-2">
@@ -516,7 +516,7 @@ function Jarvis({ lessons, course, level, faculty, onClose, onOpen, onNote }: { 
           <button type="button" onClick={mic} aria-label={state === "listening" ? "Stop recording" : "Talk"} className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${state === "listening" ? "animate-pulse bg-destructive text-destructive-foreground" : "bg-secondary"}`}>
             {state === "listening" ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </button>
-          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask Jarvis…" className="min-w-0 flex-1 bg-transparent px-1 text-[16px] outline-none" />
+          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask Nexus…" className="min-w-0 flex-1 bg-transparent px-1 text-[16px] outline-none" />
           <button type="submit" aria-label="Send" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground"><Send className="h-4 w-4" /></button>
         </form>
       </div>
