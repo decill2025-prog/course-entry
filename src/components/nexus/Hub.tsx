@@ -1,30 +1,47 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Atom, BadgeCheck, Bell, BookOpen, Brain, Building2, CheckCircle2, ChevronDown, Circle, Cog, Cpu, Dna, Eye,
-  FlaskConical, GraduationCap, Headphones, Home, Library, Lightbulb, LogOut, Mic, Pause, Pin, Send, Share2, ShieldAlert, Sigma, Square, WifiOff, X,
+  ArrowLeft, Atom, BadgeCheck, Bell, BookOpen, Brain, Building2, CheckCircle2, ChevronDown, Cog, Cpu, Dna, Download, Eye,
+  FlaskConical, GraduationCap, Headphones, Home, Library, Lightbulb, Loader2, LogOut, Mic, Pause, Pin, Send, Share2, ShieldAlert, Sigma, Sparkles, Square, WifiOff, X,
 } from "lucide-react";
-import { CLEARANCE, COURSES, LEVELS, TIMETABLE, courseName, type Level } from "@/lib/nexus-data";
+import { COURSES, LEVELS, TIMETABLE, courseName, type Level } from "@/lib/nexus-data";
 import { groupOf, lessonsFor, type Icon, type Lesson } from "@/lib/lessons";
-import { askJarvis, speak, transcribe } from "@/lib/ai.functions";
+import { askJarvis, generatePost, speak, transcribe } from "@/lib/ai.functions";
+import { SESSION_BATCH, loadPosts, nextTopic, remainingToday, savePosts, spendOne, toStored, type StoredPost } from "@/lib/feed-engine";
+import { kittenReady, speakOffline, stopKitten, warmKitten } from "@/lib/offline-voice";
 
 export type Profile = { level: Level; course: string; faculty: string };
 const ICONS: Record<Icon, typeof Cpu> = { cpu: Cpu, flask: FlaskConical, atom: Atom, sigma: Sigma, book: BookOpen, cog: Cog, building: Building2, dna: Dna };
 const NEWS_ID = "futes-news";
+const NEWS = {
+  title: "TO THE FRESHERS ✅❤️",
+  short: "Welcome to FUTES Iyin-Ekiti! Physical registration for 2025/2026 is ongoing. Here's what to bring.",
+  full: [
+    "Congratulations on your admission into the Federal University of Technology and Environmental Sciences, Iyin-Ekiti.",
+    "Physical registration and documentation for the 2025/2026 academic session is ongoing. Come with the originals and photocopies of: JAMB admission letter, JAMB result slip, O'Level result(s), birth certificate or age declaration, local government identification letter, passport photographs, acceptance fee and school fee receipts, and your printed online registration forms.",
+    "Arrange your documents in a file before coming to your department. Follow official FUTES channels only for payments — never pay anyone privately.",
+    "Welcome to the FUTES family. Read hard, stay safe, and enjoy the journey.",
+  ],
+};
 
-/** One shared audio player so only one voice plays at a time. */
+/** One shared player. Server voice (Groq → Microsoft → Deepgram) online; KittenTTS on-device offline. */
 let player: HTMLAudioElement | null = null;
 async function playVoice(text: string, onEnd?: () => void): Promise<boolean> {
-  player?.pause();
-  const { audio, mime } = await speak({ data: { text } });
-  if (!audio) return false;
-  const a = new Audio(`data:${mime};base64,${audio}`);
-  player = a;
-  a.onended = () => onEnd?.();
-  await a.play();
-  return true;
+  stopVoice();
+  if (!navigator.onLine) return speakOffline(text, onEnd);
+  try {
+    const { audio, mime } = await speak({ data: { text } });
+    if (audio) {
+      const a = new Audio(`data:${mime};base64,${audio}`);
+      player = a;
+      a.onended = () => onEnd?.();
+      await a.play();
+      return true;
+    }
+  } catch { /* fall through to offline voice */ }
+  return speakOffline(text, onEnd);
 }
-const stopVoice = () => { player?.pause(); player = null; };
+const stopVoice = () => { player?.pause(); player = null; stopKitten(); };
 
 async function sharePost(id: string, title: string) {
   const url = `${window.location.origin}/?post=${id}`;
