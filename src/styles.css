@@ -222,3 +222,12 @@ body { font-family: var(--font-sans); background: var(--gradient-canvas); min-he
 @utility text-shimmer { background: linear-gradient(90deg, oklch(0.85 0.14 210), oklch(0.75 0.2 280), oklch(0.85 0.15 85), oklch(0.85 0.14 210)); background-size: 200% auto; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 6s linear infinite; }
 @utility feed-card { content-visibility: auto; contain-intrinsic-size: auto 640px; }
 @utility dock-glass { background: oklch(0.15 0.03 262 / 0.96); border: 1px solid oklch(0.75 0.15 220 / 0.18); box-shadow: 0 -1px 0 oklch(0.75 0.15 220 / 0.25) inset, 0 18px 40px -10px oklch(0 0 0 / 0.8); }
+
+/* Opacity-only entrance: no transforms on scroll containers, so fixed/sticky headers never jump in Chrome. */
+@keyframes fade-in { from { opacity: 0 } to { opacity: 1 } }
+.animate-fade { animation: fade-in .22s ease-out both; }
+html { scrollbar-gutter: stable; }
+@keyframes word-up { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+.word-up { display: inline-block; animation: word-up .35s ease-out both; }
+@keyframes busy-glow { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
+.busy-glow { animation: busy-glow 1.2s ease-in-out infinite; }

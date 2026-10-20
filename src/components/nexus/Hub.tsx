@@ -1,30 +1,47 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Atom, BadgeCheck, Bell, BookOpen, Brain, Building2, CheckCircle2, ChevronDown, Circle, Cog, Cpu, Dna, Eye,
-  FlaskConical, GraduationCap, Headphones, Home, Library, Lightbulb, LogOut, Mic, Pause, Pin, Send, Share2, ShieldAlert, Sigma, Square, WifiOff, X,
+  ArrowLeft, Atom, BadgeCheck, Bell, BookOpen, Brain, Building2, CheckCircle2, ChevronDown, Cog, Cpu, Dna, Download, Eye,
+  FlaskConical, GraduationCap, Headphones, Home, Library, Lightbulb, Loader2, LogOut, Mic, Pause, Pin, Send, Share2, ShieldAlert, Sigma, Sparkles, Square, WifiOff, X,
 } from "lucide-react";
-import { CLEARANCE, COURSES, LEVELS, TIMETABLE, courseName, type Level } from "@/lib/nexus-data";
+import { COURSES, LEVELS, TIMETABLE, courseName, type Level } from "@/lib/nexus-data";
 import { groupOf, lessonsFor, type Icon, type Lesson } from "@/lib/lessons";
-import { askJarvis, speak, transcribe } from "@/lib/ai.functions";
+import { askJarvis, generatePost, speak, transcribe } from "@/lib/ai.functions";
+import { SESSION_BATCH, loadPosts, nextTopic, remainingToday, savePosts, spendOne, toStored, type StoredPost } from "@/lib/feed-engine";
+import { kittenReady, speakOffline, stopKitten, warmKitten } from "@/lib/offline-voice";
 
 export type Profile = { level: Level; course: string; faculty: string };
 const ICONS: Record<Icon, typeof Cpu> = { cpu: Cpu, flask: FlaskConical, atom: Atom, sigma: Sigma, book: BookOpen, cog: Cog, building: Building2, dna: Dna };
 const NEWS_ID = "futes-news";
+const NEWS = {
+  title: "TO THE FRESHERS ✅❤️",
+  short: "Welcome to FUTES Iyin-Ekiti! Physical registration for 2025/2026 is ongoing. Here's what to bring.",
+  full: [
+    "Congratulations on your admission into the Federal University of Technology and Environmental Sciences, Iyin-Ekiti.",
+    "Physical registration and documentation for the 2025/2026 academic session is ongoing. Come with the originals and photocopies of: JAMB admission letter, JAMB result slip, O'Level result(s), birth certificate or age declaration, local government identification letter, passport photographs, acceptance fee and school fee receipts, and your printed online registration forms.",
+    "Arrange your documents in a file before coming to your department. Follow official FUTES channels only for payments — never pay anyone privately.",
+    "Welcome to the FUTES family. Read hard, stay safe, and enjoy the journey.",
+  ],
+};
 
-/** One shared audio player so only one voice plays at a time. */
+/** One shared player. Server voice (Groq → Microsoft → Deepgram) online; KittenTTS on-device offline. */
 let player: HTMLAudioElement | null = null;
 async function playVoice(text: string, onEnd?: () => void): Promise<boolean> {
-  player?.pause();
-  const { audio, mime } = await speak({ data: { text } });
-  if (!audio) return false;
-  const a = new Audio(`data:${mime};base64,${audio}`);
-  player = a;
-  a.onended = () => onEnd?.();
-  await a.play();
-  return true;
+  stopVoice();
+  if (!navigator.onLine) return speakOffline(text, onEnd);
+  try {
+    const { audio, mime } = await speak({ data: { text } });
+    if (audio) {
+      const a = new Audio(`data:${mime};base64,${audio}`);
+      player = a;
+      a.onended = () => onEnd?.();
+      await a.play();
+      return true;
+    }
+  } catch { /* fall through to offline voice */ }
+  return speakOffline(text, onEnd);
 }
-const stopVoice = () => { player?.pause(); player = null; };
+const stopVoice = () => { player?.pause(); player = null; stopKitten(); };
 
 async function sharePost(id: string, title: string) {
   const url = `${window.location.origin}/?post=${id}`;
@@ -89,7 +106,7 @@ function Actions({ playing, onListen, onView, onShare }: { playing: boolean; onL
   );
 }
 
-function JarvisOrb({ size }: { size: number }) {
+function NexusOrb({ size }: { size: number }) {
   return (
     <span className="jarvis block" style={{ width: size, height: size }}>
       <span className="jarvis-ring" style={{ inset: 3 }} />
@@ -102,28 +119,38 @@ function JarvisOrb({ size }: { size: number }) {
 export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch: (p: Profile) => void; onExit: () => void }) {
   const [tab, setTab] = useState<"feed" | "vault">("feed");
   const [view, setView] = useState<string | null>(null);
-  const [checklist, setChecklist] = useState(false);
+  const [news, setNews] = useState(false);
   const [switcher, setSwitcher] = useState(false);
   const [orb, setOrb] = useState(false);
   const [online, setOnline] = useState(true);
-  const [done, setDone] = useState<number[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
   const [bell, setBell] = useState(false);
   const [rounds, setRounds] = useState(1);
   const [hidden, setHidden] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
+  const [loadingVoice, setLoadingVoice] = useState<string | null>(null);
+  const [aiPosts, setAiPosts] = useState<StoredPost[]>([]);
+  const [writing, setWriting] = useState(false);
+  const [voiceOffline, setVoiceOffline] = useState(false);
+  const busy = useRef(false);
   const sentinel = useRef<HTMLDivElement>(null);
   const course = courseName(profile.course);
   const lvl = profile.level.replace(" Level", "L");
   const lessons = useMemo(() => lessonsFor(profile.level, profile.faculty), [profile.level, profile.faculty]);
+  const all = useMemo<Lesson[]>(() => [...aiPosts, ...lessons], [aiPosts, lessons]);
 
   useEffect(() => {
     setOnline(navigator.onLine);
+    setVoiceOffline(kittenReady());
     const on = () => setOnline(true), off = () => setOnline(false);
     window.addEventListener("online", on); window.addEventListener("offline", off);
-    try { setDone(JSON.parse(localStorage.getItem("nexus.clearance") || "[]")); } catch { /* ignore */ }
     const id = new URLSearchParams(window.location.search).get("post");
-    if (id === NEWS_ID) setChecklist(true); else if (id) setView(id);
+    if (id === NEWS_ID) setNews(true); else if (id) setView(id);
+    // Installed app: fetch the offline voice quietly once, so it speaks even in airplane mode.
+    if (navigator.onLine && !kittenReady() && window.matchMedia("(display-mode: standalone)").matches) {
+      const t = setTimeout(() => { void warmKitten().then(setVoiceOffline); }, 6000);
+      window.addEventListener("beforeunload", () => clearTimeout(t));
+    }
     let last = window.scrollY, ticking = false;
     const onScroll = () => {
       if (ticking) return; ticking = true;
@@ -137,33 +164,64 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
     return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); window.removeEventListener("scroll", onScroll); stopVoice(); };
   }, []);
 
+  // AI feed: load saved posts for this course, then write new ones one at a time (gentle on rate limits).
+  const writeMore = async (count: number) => {
+    if (busy.current || !navigator.onLine) return;
+    busy.current = true; setWriting(true);
+    try {
+      for (let i = 0; i < count && remainingToday() > 0; i++) {
+        const saved = loadPosts(profile.level, profile.course);
+        const t = nextTopic(profile.level, profile.course, profile.faculty, new Set(saved.map((p) => `${p.code}:${p.tag}`)));
+        if (!t) break;
+        const r = await generatePost({ data: { level: profile.level, course, code: t.code, courseTitle: t.courseTitle, topic: t.topic } }).catch(() => ({ post: null }));
+        if (!r.post) break;
+        spendOne();
+        const next = [toStored(r.post, t), ...saved];
+        savePosts(profile.level, profile.course, next);
+        setAiPosts(next);
+        if (i < count - 1) await new Promise((res) => setTimeout(res, 2500));
+      }
+    } finally { busy.current = false; setWriting(false); }
+  };
+  useEffect(() => {
+    const saved = loadPosts(profile.level, profile.course);
+    setAiPosts(saved);
+    const fresh = saved[0] && Date.now() - saved[0].at < 30 * 60 * 1000;
+    if (!fresh) void writeMore(SESSION_BATCH);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.level, profile.course]);
+
   useEffect(() => {
     const el = sentinel.current; if (!el) return;
-    const io = new IntersectionObserver((e) => { if (e[0]?.isIntersecting) setRounds((r) => Math.min(r + 1, 20)); }, { rootMargin: "800px" });
+    const io = new IntersectionObserver((e) => {
+      if (!e[0]?.isIntersecting) return;
+      setRounds((r) => Math.min(r + 1, 20));
+      void writeMore(1);
+    }, { rootMargin: "800px" });
     io.observe(el); return () => io.disconnect();
-  }, [tab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, profile.course, profile.level]);
 
   // Lock page scroll under overlays so nothing jumps behind them.
-  const overlay = !!view || checklist || orb || switcher || bell;
+  const overlay = !!view || news || orb || switcher || bell;
   useEffect(() => { document.body.style.overflow = overlay ? "hidden" : ""; return () => { document.body.style.overflow = ""; }; }, [overlay]);
 
-  const toggle = (i: number) => {
-    const next = done.includes(i) ? done.filter((x) => x !== i) : [...done, i];
-    setDone(next); localStorage.setItem("nexus.clearance", JSON.stringify(next));
-  };
-
   const listen = async (l: Lesson) => {
-    if (playing === l.id) { stopVoice(); setPlaying(null); return; }
-    setPlaying(l.id);
+    if (playing === l.id || loadingVoice === l.id) { stopVoice(); setPlaying(null); setLoadingVoice(null); return; }
+    setLoadingVoice(l.id); setPlaying(null);
+    if (!navigator.onLine && !kittenReady()) toast("Preparing offline voice — first time takes a moment.");
     try {
-      const ok = await playVoice(`${l.title}. ${l.body} Memory trick: ${l.trick}`, () => setPlaying(null));
+      const text = `${l.title}. ${l.body.replace(/\n+/g, " ")} Memory trick: ${l.trick}`;
+      let ended = false;
+      const ok = await playVoice(text, () => { ended = true; setPlaying(null); });
+      setLoadingVoice(null);
       if (!ok) { setPlaying(null); toast("Voice is unavailable right now — try again shortly."); }
-    } catch { setPlaying(null); toast.error("Couldn't play audio — check your connection."); }
+      else if (!ended) setPlaying(l.id);
+    } catch { setLoadingVoice(null); setPlaying(null); toast.error("Couldn't play audio — check your connection."); }
   };
 
-  const viewed = lessons.find((p) => p.id === view);
+  const viewed = all.find((p) => p.id === view) as (Lesson & Partial<StoredPost>) | undefined;
   const closeView = () => { setView(null); history.replaceState(null, "", "/"); };
-  const pct = Math.round((done.length / CLEARANCE.length) * 100);
   const go = (t: "feed" | "vault") => { setTab(t); window.scrollTo({ top: 0 }); setHidden(false); };
 
   return (
@@ -192,35 +250,48 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
       <main className="mx-auto max-w-xl space-y-4 px-3 pb-36 pt-[84px]">
         {tab === "feed" ? (
           <>
-            <article className="card-solid gold-ring overflow-hidden rounded-3xl animate-rise">
+            <article className="card-solid gold-ring overflow-hidden rounded-3xl">
               <div className="p-4">
                 <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-gold"><Pin className="h-3.5 w-3.5" /> Pinned by FUTES News</div>
-                <Author gold name="FUTES News" meta="Official campus press · Freshers" />
-                <h2 className="mt-3 font-display text-xl font-bold">TO THE FRESHERS ✅❤️</h2>
-                <p className="mt-1 text-[15px] leading-relaxed text-foreground/85">Your clearance steps for 2025/2026. Tick them off as you go — progress saves on this phone, even offline.</p>
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-gold transition-all" style={{ width: `${pct}%` }} /></div>
-                <p className="mt-1.5 text-xs text-muted-foreground">{done.length} of {CLEARANCE.length} done</p>
+                <Author gold name="FUTES News" meta="Official campus press · 2025/2026" />
+                <h2 className="mt-3 font-display text-xl font-bold">{NEWS.title}</h2>
+                <p className="mt-1.5 text-[16px] leading-relaxed text-foreground/90">{NEWS.short}</p>
               </div>
-              <div className="grid grid-cols-2 gap-2 p-3 pt-0">
-                <button onClick={() => setChecklist(true)} className="flex items-center justify-center gap-2 rounded-xl bg-gold py-2.5 text-sm font-semibold text-graphite"><Eye className="h-4 w-4" /> Open checklist</button>
-                <button onClick={() => sharePost(NEWS_ID, "TO THE FRESHERS — FUTES clearance steps")} className="flex items-center justify-center gap-2 rounded-xl bg-secondary py-2.5 text-sm font-semibold"><Share2 className="h-4 w-4" /> Share</button>
+              <img src="/futes-crest.jpg" alt="FUTES crest" loading="lazy" className="aspect-[16/9] w-full object-cover" />
+              <div className="grid grid-cols-2 gap-2 p-3">
+                <button onClick={() => setNews(true)} className="flex items-center justify-center gap-2 rounded-xl bg-gold py-2.5 text-sm font-semibold text-graphite"><Eye className="h-4 w-4" /> View more</button>
+                <button onClick={() => sharePost(NEWS_ID, NEWS.title)} className="flex items-center justify-center gap-2 rounded-xl bg-secondary py-2.5 text-sm font-semibold"><Share2 className="h-4 w-4" /> Share</button>
               </div>
             </article>
 
-            {Array.from({ length: rounds }).flatMap((_, r) => lessons.map((l, i) => {
-              const n = r * lessons.length + i;
+            {writing && (
+              <div className="card-solid flex items-center gap-3 rounded-3xl p-4">
+                <Avatar faculty={profile.faculty} size={40} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold"><CourseName name={course} /> AI</p>
+                  <p className="busy-glow flex items-center gap-1.5 text-xs text-primary"><Sparkles className="h-3.5 w-3.5" /> Writing a new lesson from your scheme of work…</p>
+                </div>
+              </div>
+            )}
+
+            {Array.from({ length: rounds }).flatMap((_, r) => all.map((l, i) => {
+              const n = r * all.length + i;
+              const ai = l as Lesson & Partial<StoredPost>;
               return (
                 <article key={`${l.id}-${r}`} className="feed-card card-solid overflow-hidden rounded-3xl">
                   <div className="p-4 pb-3">
-                    <Author faculty={profile.faculty} name={`Nexus AI · ${course}`} meta={`${r ? "Revision · " : ""}${n * 7 + 3}m · ${lvl} · ${l.code}`} />
-                    <p className="mt-3 text-[15px] leading-relaxed text-foreground/90">{l.body}</p>
+                    <Author faculty={profile.faculty} name={<><CourseName name={course} /> AI</>} meta={`${r ? "Revision · " : ""}${ai.at ? timeAgo(ai.at) : `${n * 7 + 3}m`} · ${lvl} · ${l.code}`} />
+                    <h3 className="mt-3 font-display text-lg font-bold leading-snug">{l.title}</h3>
+                    {ai.hook && <p className="mt-1 text-[15px] font-medium text-primary">{ai.hook}</p>}
+                    <p className="mt-2 line-clamp-6 whitespace-pre-line text-[16px] leading-relaxed text-foreground/90">{l.body}</p>
+                    <button onClick={() => setView(l.id)} className="mt-1 text-sm font-semibold text-muted-foreground hover:text-foreground">See more</button>
                   </div>
                   <button onClick={() => setView(l.id)} className="block w-full text-left" aria-label={`View ${l.title}`}><Visual l={l} /></button>
-                  <Actions playing={playing === l.id} onListen={() => listen(l)} onView={() => setView(l.id)} onShare={() => sharePost(l.id, l.title)} />
+                  <Actions playing={playing === l.id} loading={loadingVoice === l.id} onListen={() => listen(l)} onView={() => setView(l.id)} onShare={() => sharePost(l.id, l.title)} />
                 </article>
               );
             }))}
-            <div ref={sentinel} className="py-6 text-center text-xs text-muted-foreground">Loading more for {lvl} {course}…</div>
+            <div ref={sentinel} className="py-6 text-center text-xs text-muted-foreground">{online ? `Loading more for ${lvl} ${course}…` : "You're offline — these lessons are saved on your phone."}</div>
           </>
         ) : (
           <Vault lessons={lessons} course={course} lvl={lvl} faculty={profile.faculty} onOpen={setView} onAsk={() => setOrb(true)} />
@@ -237,16 +308,16 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
           </div>
           <button
             onClick={() => setOrb(true)}
-            aria-label="Open Jarvis"
+            aria-label="Open Nexus"
             className={`pointer-events-auto absolute left-1/2 top-0 -ml-[38px] -mt-[30px] rounded-full bg-graphite p-1.5 ring-1 ring-primary/30 transition-transform duration-300 ease-out will-change-transform ${hidden ? "translate-y-[40px] scale-[0.72]" : ""}`}
           >
-            <JarvisOrb size={64} />
+            <NexusOrb size={64} />
           </button>
         </div>
       </nav>
 
       {viewed && (
-        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-canvas animate-rise">
+        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-canvas animate-fade">
           <div className="mx-auto max-w-xl pb-12">
             <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-graphite/95 px-3 py-3">
               <button onClick={closeView} className="grid h-10 w-10 place-items-center rounded-full hover:bg-secondary" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
@@ -273,14 +344,14 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
                 </ul>
                 <p className="mt-4 text-sm text-muted-foreground">Close your eyes, say the trick out loud, then recall the 3 points. That's it — it sticks.</p>
               </div>
-              <button onClick={() => { closeView(); setOrb(true); }} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 font-semibold text-primary-foreground"><Mic className="h-4 w-4" /> Still confused? Ask Jarvis</button>
+              <button onClick={() => { closeView(); setOrb(true); }} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 font-semibold text-primary-foreground"><Mic className="h-4 w-4" /> Still confused? Ask Nexus</button>
             </div>
           </div>
         </div>
       )}
 
       {checklist && (
-        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-canvas animate-rise">
+        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-canvas animate-fade">
           <div className="mx-auto max-w-xl pb-12">
             <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-graphite/95 px-3 py-3">
               <button onClick={() => { setChecklist(false); history.replaceState(null, "", "/"); }} className="grid h-10 w-10 place-items-center rounded-full hover:bg-secondary" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
@@ -305,7 +376,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
 
       {switcher && <Switcher profile={profile} onClose={() => setSwitcher(false)} onExit={onExit} onSave={(p) => { setSwitcher(false); setRounds(1); window.scrollTo({ top: 0 }); onSwitch(p); toast.success(`Switched to ${p.level.replace(" Level", "L")} · ${courseName(p.course)}`); }} />}
 
-      {orb && <Jarvis lessons={lessons} course={course} level={profile.level} faculty={profile.faculty}
+      {orb && <Nexus lessons={lessons} course={course} level={profile.level} faculty={profile.faculty}
         onClose={() => { stopVoice(); setOrb(false); }}
         onOpen={(id) => { setOrb(false); if (id === "checklist") setChecklist(true); else if (id === "vault") go("vault"); else setView(id); }}
         onNote={(n) => setNotes((x) => [n, ...x])} />}
@@ -329,7 +400,7 @@ function Vault({ lessons, course, lvl, faculty, onOpen, onAsk }: { lessons: Less
   const [flip, setFlip] = useState<string | null>(null);
   return (
     <>
-      <section className="card-solid relative overflow-hidden rounded-3xl p-5 animate-rise">
+      <section className="card-solid relative overflow-hidden rounded-3xl p-5 animate-fade">
         <div className="flex items-center gap-4">
           <Avatar faculty={faculty} size={56} />
           <div className="min-w-0">
@@ -423,8 +494,8 @@ function Switcher({ profile, onClose, onSave, onExit }: { profile: Profile; onCl
 
 type Msg = { from: "ai" | "me"; text: string };
 
-function Jarvis({ lessons, course, level, faculty, onClose, onOpen, onNote }: { lessons: Lesson[]; course: string; level: Level; faculty: string; onClose: () => void; onOpen: (id: string) => void; onNote: (n: string) => void }) {
-  const [msgs, setMsgs] = useState<Msg[]>([{ from: "ai", text: `Hey, I'm Jarvis — your ${course} coursemate. Ask me anything, or tap the mic.` }]);
+function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { lessons: Lesson[]; course: string; level: Level; faculty: string; onClose: () => void; onOpen: (id: string) => void; onNote: (n: string) => void }) {
+  const [msgs, setMsgs] = useState<Msg[]>([{ from: "ai", text: `Hey, I'm Nexus — your ${course} coursemate. Ask me anything, or tap the mic.` }]);
   const [input, setInput] = useState("");
   const [state, setState] = useState<"idle" | "listening" | "thinking" | "speaking">("idle");
   const rec = useRef<MediaRecorder | null>(null);
@@ -486,17 +557,17 @@ function Jarvis({ lessons, course, level, faculty, onClose, onOpen, onNote }: { 
       };
       rec.current = mr; mr.start(); setState("listening");
       setTimeout(() => mr.state === "recording" && mr.stop(), 12000);
-    } catch { toast.error("Allow microphone access to talk to Jarvis."); }
+    } catch { toast.error("Allow microphone access to talk to Nexus."); }
   };
 
   const label = { idle: "Tap the mic and talk", listening: "Listening… tap to send", thinking: "Thinking…", speaking: "Speaking…" }[state];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/85 animate-rise" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/85 animate-fade" onClick={onClose}>
       <div className="card-solid flex h-[78dvh] w-full max-w-xl flex-col rounded-t-[2rem] px-4 pb-[max(env(safe-area-inset-bottom),16px)] pt-3" onClick={(e) => e.stopPropagation()}>
         <div className="relative flex h-[132px] shrink-0 flex-col items-center justify-center gap-1.5">
-          <div className={`transition-opacity duration-300 ${state === "idle" ? "opacity-90" : "opacity-100"}`}><JarvisOrb size={80} /></div>
-          <p className="flex items-center gap-1 font-display text-base font-bold">Jarvis <BadgeCheck className="h-4 w-4 fill-primary text-primary-foreground" /><span className="ml-1 font-sans text-xs font-normal text-muted-foreground">· {label}</span></p>
+          <div className={`transition-opacity duration-300 ${state === "idle" ? "opacity-90" : "opacity-100"}`}><NexusOrb size={80} /></div>
+          <p className="flex items-center gap-1 font-display text-base font-bold">Nexus <BadgeCheck className="h-4 w-4 fill-primary text-primary-foreground" /><span className="ml-1 font-sans text-xs font-normal text-muted-foreground">· {label}</span></p>
           <button onClick={onClose} aria-label="Close" className="absolute right-0 top-0 grid h-9 w-9 place-items-center rounded-full hover:bg-secondary"><X className="h-5 w-5" /></button>
         </div>
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain py-2">
@@ -516,7 +587,7 @@ function Jarvis({ lessons, course, level, faculty, onClose, onOpen, onNote }: { 
           <button type="button" onClick={mic} aria-label={state === "listening" ? "Stop recording" : "Talk"} className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${state === "listening" ? "animate-pulse bg-destructive text-destructive-foreground" : "bg-secondary"}`}>
             {state === "listening" ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </button>
-          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask Jarvis…" className="min-w-0 flex-1 bg-transparent px-1 text-[16px] outline-none" />
+          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask Nexus…" className="min-w-0 flex-1 bg-transparent px-1 text-[16px] outline-none" />
           <button type="submit" aria-label="Send" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground"><Send className="h-4 w-4" /></button>
         </form>
       </div>
