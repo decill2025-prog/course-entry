@@ -212,11 +212,11 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
     if (!navigator.onLine && !kittenReady()) toast("Preparing offline voice — first time takes a moment.");
     try {
       const text = `${l.title}. ${l.body.replace(/\n+/g, " ")} Memory trick: ${l.trick}`;
-      const p = playVoice(text, () => setPlaying(null));
-      setTimeout(() => setLoadingVoice((v) => { if (v === l.id) setPlaying(l.id); return v; }), 0);
-      const ok = await p;
+      let ended = false;
+      const ok = await playVoice(text, () => { ended = true; setPlaying(null); });
       setLoadingVoice(null);
-      if (ok) setPlaying((x) => x ?? l.id); else { setPlaying(null); toast("Voice is unavailable right now — try again shortly."); }
+      if (!ok) { setPlaying(null); toast("Voice is unavailable right now — try again shortly."); }
+      else if (!ended) setPlaying(l.id);
     } catch { setLoadingVoice(null); setPlaying(null); toast.error("Couldn't play audio — check your connection."); }
   };
 
