@@ -250,35 +250,48 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
       <main className="mx-auto max-w-xl space-y-4 px-3 pb-36 pt-[84px]">
         {tab === "feed" ? (
           <>
-            <article className="card-solid gold-ring overflow-hidden rounded-3xl animate-fade">
+            <article className="card-solid gold-ring overflow-hidden rounded-3xl">
               <div className="p-4">
                 <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-gold"><Pin className="h-3.5 w-3.5" /> Pinned by FUTES News</div>
-                <Author gold name="FUTES News" meta="Official campus press · Freshers" />
-                <h2 className="mt-3 font-display text-xl font-bold">TO THE FRESHERS ✅❤️</h2>
-                <p className="mt-1 text-[15px] leading-relaxed text-foreground/85">Your clearance steps for 2025/2026. Tick them off as you go — progress saves on this phone, even offline.</p>
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-gold transition-all" style={{ width: `${pct}%` }} /></div>
-                <p className="mt-1.5 text-xs text-muted-foreground">{done.length} of {CLEARANCE.length} done</p>
+                <Author gold name="FUTES News" meta="Official campus press · 2025/2026" />
+                <h2 className="mt-3 font-display text-xl font-bold">{NEWS.title}</h2>
+                <p className="mt-1.5 text-[16px] leading-relaxed text-foreground/90">{NEWS.short}</p>
               </div>
-              <div className="grid grid-cols-2 gap-2 p-3 pt-0">
-                <button onClick={() => setChecklist(true)} className="flex items-center justify-center gap-2 rounded-xl bg-gold py-2.5 text-sm font-semibold text-graphite"><Eye className="h-4 w-4" /> Open checklist</button>
-                <button onClick={() => sharePost(NEWS_ID, "TO THE FRESHERS — FUTES clearance steps")} className="flex items-center justify-center gap-2 rounded-xl bg-secondary py-2.5 text-sm font-semibold"><Share2 className="h-4 w-4" /> Share</button>
+              <img src="/futes-crest.jpg" alt="FUTES crest" loading="lazy" className="aspect-[16/9] w-full object-cover" />
+              <div className="grid grid-cols-2 gap-2 p-3">
+                <button onClick={() => setNews(true)} className="flex items-center justify-center gap-2 rounded-xl bg-gold py-2.5 text-sm font-semibold text-graphite"><Eye className="h-4 w-4" /> View more</button>
+                <button onClick={() => sharePost(NEWS_ID, NEWS.title)} className="flex items-center justify-center gap-2 rounded-xl bg-secondary py-2.5 text-sm font-semibold"><Share2 className="h-4 w-4" /> Share</button>
               </div>
             </article>
 
-            {Array.from({ length: rounds }).flatMap((_, r) => lessons.map((l, i) => {
-              const n = r * lessons.length + i;
+            {writing && (
+              <div className="card-solid flex items-center gap-3 rounded-3xl p-4">
+                <Avatar faculty={profile.faculty} size={40} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold"><CourseName name={course} /> AI</p>
+                  <p className="busy-glow flex items-center gap-1.5 text-xs text-primary"><Sparkles className="h-3.5 w-3.5" /> Writing a new lesson from your scheme of work…</p>
+                </div>
+              </div>
+            )}
+
+            {Array.from({ length: rounds }).flatMap((_, r) => all.map((l, i) => {
+              const n = r * all.length + i;
+              const ai = l as Lesson & Partial<StoredPost>;
               return (
                 <article key={`${l.id}-${r}`} className="feed-card card-solid overflow-hidden rounded-3xl">
                   <div className="p-4 pb-3">
-                    <Author faculty={profile.faculty} name={`Nexus AI · ${course}`} meta={`${r ? "Revision · " : ""}${n * 7 + 3}m · ${lvl} · ${l.code}`} />
-                    <p className="mt-3 text-[15px] leading-relaxed text-foreground/90">{l.body}</p>
+                    <Author faculty={profile.faculty} name={<><CourseName name={course} /> AI</>} meta={`${r ? "Revision · " : ""}${ai.at ? timeAgo(ai.at) : `${n * 7 + 3}m`} · ${lvl} · ${l.code}`} />
+                    <h3 className="mt-3 font-display text-lg font-bold leading-snug">{l.title}</h3>
+                    {ai.hook && <p className="mt-1 text-[15px] font-medium text-primary">{ai.hook}</p>}
+                    <p className="mt-2 line-clamp-6 whitespace-pre-line text-[16px] leading-relaxed text-foreground/90">{l.body}</p>
+                    <button onClick={() => setView(l.id)} className="mt-1 text-sm font-semibold text-muted-foreground hover:text-foreground">See more</button>
                   </div>
                   <button onClick={() => setView(l.id)} className="block w-full text-left" aria-label={`View ${l.title}`}><Visual l={l} /></button>
-                  <Actions playing={playing === l.id} onListen={() => listen(l)} onView={() => setView(l.id)} onShare={() => sharePost(l.id, l.title)} />
+                  <Actions playing={playing === l.id} loading={loadingVoice === l.id} onListen={() => listen(l)} onView={() => setView(l.id)} onShare={() => sharePost(l.id, l.title)} />
                 </article>
               );
             }))}
-            <div ref={sentinel} className="py-6 text-center text-xs text-muted-foreground">Loading more for {lvl} {course}…</div>
+            <div ref={sentinel} className="py-6 text-center text-xs text-muted-foreground">{online ? `Loading more for ${lvl} ${course}…` : "You're offline — these lessons are saved on your phone."}</div>
           </>
         ) : (
           <Vault lessons={lessons} course={course} lvl={lvl} faculty={profile.faculty} onOpen={setView} onAsk={() => setOrb(true)} />
