@@ -119,28 +119,38 @@ function NexusOrb({ size }: { size: number }) {
 export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch: (p: Profile) => void; onExit: () => void }) {
   const [tab, setTab] = useState<"feed" | "vault">("feed");
   const [view, setView] = useState<string | null>(null);
-  const [checklist, setChecklist] = useState(false);
+  const [news, setNews] = useState(false);
   const [switcher, setSwitcher] = useState(false);
   const [orb, setOrb] = useState(false);
   const [online, setOnline] = useState(true);
-  const [done, setDone] = useState<number[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
   const [bell, setBell] = useState(false);
   const [rounds, setRounds] = useState(1);
   const [hidden, setHidden] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
+  const [loadingVoice, setLoadingVoice] = useState<string | null>(null);
+  const [aiPosts, setAiPosts] = useState<StoredPost[]>([]);
+  const [writing, setWriting] = useState(false);
+  const [voiceOffline, setVoiceOffline] = useState(false);
+  const busy = useRef(false);
   const sentinel = useRef<HTMLDivElement>(null);
   const course = courseName(profile.course);
   const lvl = profile.level.replace(" Level", "L");
   const lessons = useMemo(() => lessonsFor(profile.level, profile.faculty), [profile.level, profile.faculty]);
+  const all = useMemo<Lesson[]>(() => [...aiPosts, ...lessons], [aiPosts, lessons]);
 
   useEffect(() => {
     setOnline(navigator.onLine);
+    setVoiceOffline(kittenReady());
     const on = () => setOnline(true), off = () => setOnline(false);
     window.addEventListener("online", on); window.addEventListener("offline", off);
-    try { setDone(JSON.parse(localStorage.getItem("nexus.clearance") || "[]")); } catch { /* ignore */ }
     const id = new URLSearchParams(window.location.search).get("post");
-    if (id === NEWS_ID) setChecklist(true); else if (id) setView(id);
+    if (id === NEWS_ID) setNews(true); else if (id) setView(id);
+    // Installed app: fetch the offline voice quietly once, so it speaks even in airplane mode.
+    if (navigator.onLine && !kittenReady() && window.matchMedia("(display-mode: standalone)").matches) {
+      const t = setTimeout(() => { void warmKitten().then(setVoiceOffline); }, 6000);
+      window.addEventListener("beforeunload", () => clearTimeout(t));
+    }
     let last = window.scrollY, ticking = false;
     const onScroll = () => {
       if (ticking) return; ticking = true;
@@ -154,33 +164,64 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
     return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); window.removeEventListener("scroll", onScroll); stopVoice(); };
   }, []);
 
+  // AI feed: load saved posts for this course, then write new ones one at a time (gentle on rate limits).
+  const writeMore = async (count: number) => {
+    if (busy.current || !navigator.onLine) return;
+    busy.current = true; setWriting(true);
+    try {
+      for (let i = 0; i < count && remainingToday() > 0; i++) {
+        const saved = loadPosts(profile.level, profile.course);
+        const t = nextTopic(profile.level, profile.course, profile.faculty, new Set(saved.map((p) => `${p.code}:${p.tag}`)));
+        if (!t) break;
+        const r = await generatePost({ data: { level: profile.level, course, code: t.code, courseTitle: t.courseTitle, topic: t.topic } }).catch(() => ({ post: null }));
+        if (!r.post) break;
+        spendOne();
+        const next = [toStored(r.post, t), ...saved];
+        savePosts(profile.level, profile.course, next);
+        setAiPosts(next);
+        if (i < count - 1) await new Promise((res) => setTimeout(res, 2500));
+      }
+    } finally { busy.current = false; setWriting(false); }
+  };
+  useEffect(() => {
+    const saved = loadPosts(profile.level, profile.course);
+    setAiPosts(saved);
+    const fresh = saved[0] && Date.now() - saved[0].at < 30 * 60 * 1000;
+    if (!fresh) void writeMore(SESSION_BATCH);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.level, profile.course]);
+
   useEffect(() => {
     const el = sentinel.current; if (!el) return;
-    const io = new IntersectionObserver((e) => { if (e[0]?.isIntersecting) setRounds((r) => Math.min(r + 1, 20)); }, { rootMargin: "800px" });
+    const io = new IntersectionObserver((e) => {
+      if (!e[0]?.isIntersecting) return;
+      setRounds((r) => Math.min(r + 1, 20));
+      void writeMore(1);
+    }, { rootMargin: "800px" });
     io.observe(el); return () => io.disconnect();
-  }, [tab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, profile.course, profile.level]);
 
   // Lock page scroll under overlays so nothing jumps behind them.
-  const overlay = !!view || checklist || orb || switcher || bell;
+  const overlay = !!view || news || orb || switcher || bell;
   useEffect(() => { document.body.style.overflow = overlay ? "hidden" : ""; return () => { document.body.style.overflow = ""; }; }, [overlay]);
 
-  const toggle = (i: number) => {
-    const next = done.includes(i) ? done.filter((x) => x !== i) : [...done, i];
-    setDone(next); localStorage.setItem("nexus.clearance", JSON.stringify(next));
-  };
-
   const listen = async (l: Lesson) => {
-    if (playing === l.id) { stopVoice(); setPlaying(null); return; }
-    setPlaying(l.id);
+    if (playing === l.id || loadingVoice === l.id) { stopVoice(); setPlaying(null); setLoadingVoice(null); return; }
+    setLoadingVoice(l.id); setPlaying(null);
+    if (!navigator.onLine && !kittenReady()) toast("Preparing offline voice — first time takes a moment.");
     try {
-      const ok = await playVoice(`${l.title}. ${l.body} Memory trick: ${l.trick}`, () => setPlaying(null));
-      if (!ok) { setPlaying(null); toast("Voice is unavailable right now — try again shortly."); }
-    } catch { setPlaying(null); toast.error("Couldn't play audio — check your connection."); }
+      const text = `${l.title}. ${l.body.replace(/\n+/g, " ")} Memory trick: ${l.trick}`;
+      const p = playVoice(text, () => setPlaying(null));
+      setTimeout(() => setLoadingVoice((v) => { if (v === l.id) setPlaying(l.id); return v; }), 0);
+      const ok = await p;
+      setLoadingVoice(null);
+      if (ok) setPlaying((x) => x ?? l.id); else { setPlaying(null); toast("Voice is unavailable right now — try again shortly."); }
+    } catch { setLoadingVoice(null); setPlaying(null); toast.error("Couldn't play audio — check your connection."); }
   };
 
-  const viewed = lessons.find((p) => p.id === view);
+  const viewed = all.find((p) => p.id === view) as (Lesson & Partial<StoredPost>) | undefined;
   const closeView = () => { setView(null); history.replaceState(null, "", "/"); };
-  const pct = Math.round((done.length / CLEARANCE.length) * 100);
   const go = (t: "feed" | "vault") => { setTab(t); window.scrollTo({ top: 0 }); setHidden(false); };
 
   return (
