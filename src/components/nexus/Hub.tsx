@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -67,7 +68,7 @@ function timeAgo(at: number) {
   return m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`;
 }
 
-function Author({ gold, faculty, name, meta }: { gold?: boolean | undefined; faculty?: string | undefined; name: React.ReactNode; meta: string }) {
+function Author({ gold, faculty, name, meta }: { gold?: boolean | undefined; faculty?: string | undefined; name: ReactNode; meta: string }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
       <Avatar gold={gold} faculty={faculty} />
