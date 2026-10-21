@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -57,7 +58,17 @@ function Avatar({ gold, faculty, size = 40 }: { gold?: boolean | undefined; facu
   return <img src={src} alt="" width={size} height={size} style={{ width: size, height: size }} className={`shrink-0 rounded-full object-cover ring-2 ${gold ? "ring-gold" : "ring-primary/70"}`} />;
 }
 
-function Author({ gold, faculty, name, meta }: { gold?: boolean | undefined; faculty?: string | undefined; name: string; meta: string }) {
+const HUES = [205, 258, 300, 340, 20, 55, 95, 150, 185];
+/** Course name with every letter in a different colour (AI profile identity). */
+function CourseName({ name }: { name: string }) {
+  return <>{[...name].map((ch, i) => <span key={i} style={{ color: ch === " " ? undefined : `oklch(0.78 0.16 ${HUES[i % HUES.length]})` }}>{ch}</span>)}</>;
+}
+function timeAgo(at: number) {
+  const m = Math.max(1, Math.round((Date.now() - at) / 60000));
+  return m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`;
+}
+
+function Author({ gold, faculty, name, meta }: { gold?: boolean | undefined; faculty?: string | undefined; name: ReactNode; meta: string }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
       <Avatar gold={gold} faculty={faculty} />
@@ -93,12 +104,12 @@ function Visual({ l }: { l: Lesson }) {
   );
 }
 
-function Actions({ playing, onListen, onView, onShare }: { playing: boolean; onListen: () => void; onView: () => void; onShare: () => void }) {
+function Actions({ playing, loading, onListen, onView, onShare }: { playing: boolean; loading?: boolean; onListen: () => void; onView: () => void; onShare: () => void }) {
   const b = "flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-colors active:scale-[0.97]";
   return (
     <div className="grid grid-cols-3 gap-2 p-3">
-      <button onClick={onListen} className={`${b} ${playing ? "bg-primary text-primary-foreground" : "bg-secondary hover:bg-secondary/70"}`}>
-        {playing ? <Pause className="h-4 w-4" /> : <Headphones className="h-4 w-4" />} {playing ? "Stop" : "Listen"}
+      <button onClick={onListen} className={`${b} ${playing || loading ? "bg-primary text-primary-foreground" : "bg-secondary hover:bg-secondary/70"}`}>
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : playing ? <Pause className="h-4 w-4" /> : <Headphones className="h-4 w-4" />} {loading ? "Loading…" : playing ? "Stop" : "Listen"}
       </button>
       <button onClick={onView} className={`${b} bg-primary/15 text-primary hover:bg-primary/25`}><Eye className="h-4 w-4" /> View</button>
       <button onClick={onShare} className={`${b} bg-secondary hover:bg-secondary/70`}><Share2 className="h-4 w-4" /> Share</button>
@@ -294,7 +305,14 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
             <div ref={sentinel} className="py-6 text-center text-xs text-muted-foreground">{online ? `Loading more for ${lvl} ${course}…` : "You're offline — these lessons are saved on your phone."}</div>
           </>
         ) : (
-          <Vault lessons={lessons} course={course} lvl={lvl} faculty={profile.faculty} onOpen={setView} onAsk={() => setOrb(true)} />
+          <>
+          <button disabled={voiceOffline} onClick={async () => { toast("Downloading offline voice (~25 MB)…"); const ok = await warmKitten(); setVoiceOffline(ok); toast[ok ? "success" : "error"](ok ? "Offline voice ready — Listen works without internet." : "Download failed — try again on better network."); }}
+            className="card-solid flex w-full items-center gap-3 rounded-3xl p-4 text-left disabled:opacity-80">
+            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-primary/15 text-primary">{voiceOffline ? <CheckCircle2 className="h-5 w-5" /> : <Download className="h-5 w-5" />}</span>
+            <span className="min-w-0"><span className="block text-sm font-semibold">{voiceOffline ? "Offline voice is ready" : "Download offline voice"}</span><span className="block text-xs text-muted-foreground">Kitten neural voice reads lessons with no internet.</span></span>
+          </button>
+          <Vault lessons={all} course={course} lvl={lvl} faculty={profile.faculty} onOpen={setView} onAsk={() => setOrb(true)} />
+          </>
         )}
       </main>
 
@@ -317,18 +335,35 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
       </nav>
 
       {viewed && (
-        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-canvas animate-fade">
-          <div className="mx-auto max-w-xl pb-12">
-            <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-graphite/95 px-3 py-3">
+        <div className="fixed inset-0 z-50 flex flex-col bg-canvas animate-fade">
+          <div className="shrink-0 border-b border-border bg-graphite">
+            <div className="mx-auto flex max-w-xl items-center gap-2 px-3 py-3">
               <button onClick={closeView} className="grid h-10 w-10 place-items-center rounded-full hover:bg-secondary" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
               <span className="font-display font-semibold">{viewed.code} · Lesson</span>
             </div>
+          </div>
+          <div className="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto overscroll-contain pb-12">
             <Visual l={viewed} />
             <div className="space-y-4 p-4">
-              <Author faculty={profile.faculty} name={`Nexus AI · ${course}`} meta={`${lvl} · ${viewed.tag}`} />
-              <h1 className="text-shimmer font-display text-3xl font-bold leading-tight">{viewed.title}</h1>
-              <p className="text-[17px] leading-8 text-foreground/90">{viewed.body}</p>
-              <Actions playing={playing === viewed.id} onListen={() => listen(viewed)} onView={() => document.getElementById("trick")?.scrollIntoView({ behavior: "smooth" })} onShare={() => sharePost(viewed.id, viewed.title)} />
+              <Author faculty={profile.faculty} name={<><CourseName name={course} /> AI</>} meta={`${lvl} · ${viewed.courseTitle ?? viewed.tag}`} />
+              <h1 className="font-display text-3xl font-bold leading-tight">{viewed.title}</h1>
+              {viewed.hook && <p className="text-lg font-medium text-primary">{viewed.hook}</p>}
+              {viewed.body.split(/\n+/).map((p) => <p key={p} className="text-[17px] leading-8 text-foreground/90">{p}</p>)}
+              <Actions playing={playing === viewed.id} loading={loadingVoice === viewed.id} onListen={() => listen(viewed)} onView={() => document.getElementById("trick")?.scrollIntoView({ behavior: "smooth" })} onShare={() => sharePost(viewed.id, viewed.title)} />
+              {!!viewed.steps?.length && (
+                <div className="card-solid rounded-3xl p-5">
+                  <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-primary"><GraduationCap className="h-4 w-4" /> Step by step</p>
+                  <ol className="mt-3 space-y-3">
+                    {viewed.steps.map((s, i) => <li key={s} className="flex gap-3 text-[16px] leading-7"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/15 text-sm font-bold text-primary">{i + 1}</span>{s}</li>)}
+                  </ol>
+                </div>
+              )}
+              {viewed.example && (
+                <div className="rounded-3xl border border-primary/30 bg-primary/10 p-5">
+                  <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-primary"><Lightbulb className="h-4 w-4" /> Real-life example</p>
+                  <p className="mt-2 text-[16px] leading-7">{viewed.example}</p>
+                </div>
+              )}
               <div id="trick" className="rounded-3xl border border-gold/30 bg-gold/10 p-5">
                 <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gold"><Brain className="h-4 w-4" /> Memory trick</p>
                 <p className="mt-2 font-display text-xl font-bold leading-snug">{viewed.trick}</p>
@@ -350,25 +385,21 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
         </div>
       )}
 
-      {checklist && (
-        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-canvas animate-fade">
-          <div className="mx-auto max-w-xl pb-12">
-            <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-graphite/95 px-3 py-3">
-              <button onClick={() => { setChecklist(false); history.replaceState(null, "", "/"); }} className="grid h-10 w-10 place-items-center rounded-full hover:bg-secondary" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
-              <span className="font-display font-semibold">FUTES News · Clearance</span>
-              <span className="ml-auto rounded-full bg-gold px-2.5 py-1 text-xs font-bold text-graphite">{pct}%</span>
+      {news && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-canvas animate-fade">
+          <div className="shrink-0 border-b border-border bg-graphite">
+            <div className="mx-auto flex max-w-xl items-center gap-2 px-3 py-3">
+              <button onClick={() => { setNews(false); history.replaceState(null, "", "/"); }} className="grid h-10 w-10 place-items-center rounded-full hover:bg-secondary" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
+              <span className="font-display font-semibold">FUTES News</span>
             </div>
-            <div className="space-y-2 p-4">
-              {CLEARANCE.map((c, i) => {
-                const ok = done.includes(i);
-                return (
-                  <button key={c} onClick={() => toggle(i)} className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-[15px] transition-colors ${ok ? "border-gold/40 bg-gold/10" : "border-border bg-secondary/40 hover:bg-secondary"}`}>
-                    {ok ? <CheckCircle2 className="h-5 w-5 shrink-0 text-gold" /> : <Circle className="h-5 w-5 shrink-0 text-muted-foreground" />}
-                    <span className={`flex-1 ${ok ? "text-muted-foreground line-through" : ""}`}>{c}</span>
-                  </button>
-                );
-              })}
-              <p className="pt-2 text-[11px] text-muted-foreground">Confirm each step with the official FUTES notice.</p>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <div className="mx-auto max-w-xl space-y-4 p-4 pb-12">
+              <Author gold name="FUTES News" meta="Official campus press · 2025/2026" />
+              <h1 className="font-display text-3xl font-bold leading-tight">{NEWS.title}</h1>
+              <img src="/futes-crest.jpg" alt="FUTES crest" className="aspect-[16/9] w-full rounded-3xl object-cover" />
+              {NEWS.full.map((p) => <p key={p} className="text-[17px] leading-8 text-foreground/90">{p}</p>)}
+              <button onClick={() => sharePost(NEWS_ID, NEWS.title)} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gold py-3 font-semibold text-graphite"><Share2 className="h-4 w-4" /> Share with your coursemates</button>
             </div>
           </div>
         </div>
@@ -378,7 +409,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
 
       {orb && <Nexus lessons={lessons} course={course} level={profile.level} faculty={profile.faculty}
         onClose={() => { stopVoice(); setOrb(false); }}
-        onOpen={(id) => { setOrb(false); if (id === "checklist") setChecklist(true); else if (id === "vault") go("vault"); else setView(id); }}
+        onOpen={(id) => { setOrb(false); if (id === "news") setNews(true); else if (id === "vault") go("vault"); else setView(id); }}
         onNote={(n) => setNotes((x) => [n, ...x])} />}
 
       {bell && (
@@ -492,31 +523,39 @@ function Switcher({ profile, onClose, onSave, onExit }: { profile: Profile; onCl
   );
 }
 
-type Msg = { from: "ai" | "me"; text: string };
+type Msg = { from: "ai" | "me"; text: string; fresh?: boolean };
 
 function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { lessons: Lesson[]; course: string; level: Level; faculty: string; onClose: () => void; onOpen: (id: string) => void; onNote: (n: string) => void }) {
   const [msgs, setMsgs] = useState<Msg[]>([{ from: "ai", text: `Hey, I'm Nexus — your ${course} coursemate. Ask me anything, or tap the mic.` }]);
   const [input, setInput] = useState("");
-  const [state, setState] = useState<"idle" | "listening" | "thinking" | "speaking">("idle");
+  const [state, setState] = useState<"idle" | "listening" | "thinking" | "voice" | "speaking">("idle");
   const rec = useRef<MediaRecorder | null>(null);
   const end = useRef<HTMLDivElement>(null);
+  const chatKey = `nexus.chat.${course}`;
+  useEffect(() => { try { const m = JSON.parse(localStorage.getItem(chatKey) || "null") as Msg[] | null; if (m?.length) setMsgs(m.map((x) => ({ ...x, fresh: false }))); } catch { /* ignore */ } }, [chatKey]);
+  useEffect(() => { try { localStorage.setItem(chatKey, JSON.stringify(msgs.slice(-40).map(({ from, text }) => ({ from, text })))); } catch { /* ignore */ } }, [msgs, chatKey]);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs, state]);
   useEffect(() => () => { rec.current?.state === "recording" && rec.current.stop(); }, []);
-  const chips = [`Explain ${lessons[0]?.code ?? "my course"} simply`, "Open my clearance", "Draft acceptance letter"];
+  const chips = [`Explain ${lessons[0]?.code ?? "my course"} simply`, "Open FUTES News", "Draft acceptance letter"];
 
   // Local intents: 0 API calls, instant.
   const local = (t: string) => {
     const post = lessons.find((p) => t.includes(p.code.toLowerCase()) && /open|show|go/.test(t));
     if (post) return { text: `Roger. Opening ${post.code}.`, act: () => onOpen(post.id) };
-    if (/clearance|checklist|fresher/.test(t)) return { text: "On it. Opening your clearance.", act: () => onOpen("checklist") };
+    if (/news|fresher|registration/.test(t)) return { text: "Roger. Opening FUTES News.", act: () => onOpen("news") };
     if (/vault|timetable|scheme/.test(t)) return { text: "Roger. Study Vault.", act: () => onOpen("vault") };
     if (/draft|letter|document/.test(t)) return { text: "Done. It's in your notifications.", act: () => onNote(`📄 Draft ready: "Letter of Acceptance — ${course}".`) };
     return null;
   };
 
   const say = async (text: string) => {
-    setState("speaking");
-    try { const ok = await playVoice(text, () => setState("idle")); if (!ok) setState("idle"); } catch { setState("idle"); }
+    setState("voice");
+    let ended = false;
+    try {
+      const p = playVoice(text, () => { ended = true; setState("idle"); });
+      const ok = await p;
+      if (!ok || ended) setState("idle"); else setState("speaking");
+    } catch { setState("idle"); }
   };
 
   const send = async (text: string) => {
@@ -560,7 +599,7 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
     } catch { toast.error("Allow microphone access to talk to Nexus."); }
   };
 
-  const label = { idle: "Tap the mic and talk", listening: "Listening… tap to send", thinking: "Thinking…", speaking: "Speaking…" }[state];
+  const label = { idle: "Tap the mic and talk", listening: "Listening… tap to send", thinking: "Thinking…", voice: "Preparing voice… please wait", speaking: "Speaking…" }[state];
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/85 animate-fade" onClick={onClose}>
@@ -574,10 +613,10 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
           {msgs.map((m, i) => (
             <div key={i} className={`flex items-end gap-2 ${m.from === "me" ? "justify-end" : ""}`}>
               {m.from === "ai" && <Avatar faculty={faculty} size={26} />}
-              <p className={`max-w-[82%] rounded-2xl px-3.5 py-2 text-[15px] leading-relaxed ${m.from === "ai" ? "bg-secondary" : "bg-primary text-primary-foreground"}`}>{m.text}</p>
+              <p className={`max-w-[82%] rounded-2xl px-3.5 py-2 text-[15px] leading-relaxed ${m.from === "ai" ? "bg-secondary" : "bg-primary text-primary-foreground"}`}>{m.from === "ai" && m.fresh !== false ? m.text.split(" ").map((w, j) => <span key={j} className="word-up" style={{ animationDelay: `${Math.min(j * 35, 2500)}ms` }}>{w}&nbsp;</span>) : m.text}</p>
             </div>
           ))}
-          {state === "thinking" && <p className="ml-9 w-fit rounded-2xl bg-secondary px-3.5 py-2 text-sm text-muted-foreground">…</p>}
+          {(state === "thinking" || state === "voice") && <p className="busy-glow ml-9 flex w-fit items-center gap-2 rounded-2xl bg-primary/15 px-3.5 py-2 text-sm text-primary"><Loader2 className="h-4 w-4 animate-spin" />{state === "voice" ? "Preparing voice…" : "Nexus is thinking…"}</p>}
           <div ref={end} />
         </div>
         <div className="mb-2 flex shrink-0 gap-2 overflow-x-auto">

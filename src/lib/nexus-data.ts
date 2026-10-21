@@ -64,23 +64,6 @@ export const POSTS: Post[] = [
   { id: "p5", code: "MTH 101", tag: "Mathematics", title: "Sets, unions and intersections", body: "A ∪ B holds everything in A or B. A ∩ B holds only what both share. Draw a Venn diagram before solving any set question.", hue: 200, icon: "sigma" },
 ];
 
-/** Fresher clearance steps (demo wording — confirm against the official FUTES notice). */
-export const CLEARANCE = [
-  "Print JAMB admission letter",
-  "Accept admission on JAMB CAPS",
-  "Pay acceptance fee",
-  "Collect FUTES admission letter",
-  "Pay school fees",
-  "Complete online registration portal",
-  "Upload O'Level results",
-  "Submit birth certificate / age declaration",
-  "Submit state of origin letter",
-  "Medical screening at the health centre",
-  "Departmental clearance",
-  "Collect student ID card",
-  "Course registration with your adviser",
-] as const;
-
 export const TIMETABLE = [
   { day: "Mon", time: "8:00 – 10:00", code: "GST 101", room: "Lecture Theatre A" },
   { day: "Mon", time: "12:00 – 2:00", code: "MTH 101", room: "Hall 2" },

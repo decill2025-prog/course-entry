@@ -20,6 +20,11 @@ export async function registerNexusSW() {
   }
   try {
     await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+    // Once the worker controls the page, fetch "/" through it so the app opens on an offline reload.
+    await navigator.serviceWorker.ready;
+    const warm = () => fetch("/", { headers: { accept: "text/html" } }).catch(() => undefined);
+    if (navigator.serviceWorker.controller) void warm();
+    else navigator.serviceWorker.addEventListener("controllerchange", () => void warm(), { once: true });
   } catch (e) {
     console.warn("SW registration failed", e);
   }

@@ -16,9 +16,30 @@ describe("nexus rules", () => {
   });
 });
 
-import { CLEARANCE } from "@/lib/nexus-data";
-describe("fresher clearance", () => {
-  it("has 13 steps", () => expect(CLEARANCE).toHaveLength(13));
+import { schemeFor } from "@/lib/scheme";
+import { COURSES as ALL_COURSES } from "@/lib/nexus-data";
+import { DAILY_CAP, remainingToday, spendOne } from "@/lib/feed-engine";
+describe("scheme of work", () => {
+  it("every one of the 35 courses has 100L and 200L courses", () => {
+    for (const c of ALL_COURSES) {
+      expect(schemeFor("100 Level", c.name, c.faculty).length).toBeGreaterThan(0);
+      expect(schemeFor("200 Level", c.name, c.faculty).length).toBeGreaterThan(2);
+    }
+  });
+  it("200L Computer Science studies CSC 201", () =>
+    expect(schemeFor("200 Level", "B.Sc. Computer Science", "Computing & Cyber Systems").map((c) => c.code)).toContain("CSC 201"));
+  it("100L never gets 200L courses", () =>
+    expect(schemeFor("100 Level", "B.Sc. Computer Science", "Computing & Cyber Systems").some((c) => /\s2\d\d$/.test(c.code))).toBe(false));
+});
+describe("daily AI budget", () => {
+  it("caps a device at 15 posts a day", () => {
+    localStorage.clear();
+    const d = new Date("2026-10-19T10:00:00Z");
+    expect(DAILY_CAP).toBe(15);
+    for (let i = 0; i < 15; i++) spendOne(d);
+    expect(remainingToday(d)).toBe(0);
+    expect(remainingToday(new Date("2026-10-20T10:00:00Z"))).toBe(15);
+  });
 });
 
 import { lessonsFor, allLessons } from "@/lib/lessons";
