@@ -305,7 +305,14 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
             <div ref={sentinel} className="py-6 text-center text-xs text-muted-foreground">{online ? `Loading more for ${lvl} ${course}…` : "You're offline — these lessons are saved on your phone."}</div>
           </>
         ) : (
-          <Vault lessons={lessons} course={course} lvl={lvl} faculty={profile.faculty} onOpen={setView} onAsk={() => setOrb(true)} />
+          <>
+          <button disabled={voiceOffline} onClick={async () => { toast("Downloading offline voice (~25 MB)…"); const ok = await warmKitten(); setVoiceOffline(ok); toast[ok ? "success" : "error"](ok ? "Offline voice ready — Listen works without internet." : "Download failed — try again on better network."); }}
+            className="card-solid flex w-full items-center gap-3 rounded-3xl p-4 text-left disabled:opacity-80">
+            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-primary/15 text-primary">{voiceOffline ? <CheckCircle2 className="h-5 w-5" /> : <Download className="h-5 w-5" />}</span>
+            <span className="min-w-0"><span className="block text-sm font-semibold">{voiceOffline ? "Offline voice is ready" : "Download offline voice"}</span><span className="block text-xs text-muted-foreground">Kitten neural voice reads lessons with no internet.</span></span>
+          </button>
+          <Vault lessons={all} course={course} lvl={lvl} faculty={profile.faculty} onOpen={setView} onAsk={() => setOrb(true)} />
+          </>
         )}
       </main>
 
