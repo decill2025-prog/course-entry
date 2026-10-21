@@ -350,25 +350,21 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
         </div>
       )}
 
-      {checklist && (
-        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-canvas animate-fade">
-          <div className="mx-auto max-w-xl pb-12">
-            <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-graphite/95 px-3 py-3">
-              <button onClick={() => { setChecklist(false); history.replaceState(null, "", "/"); }} className="grid h-10 w-10 place-items-center rounded-full hover:bg-secondary" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
-              <span className="font-display font-semibold">FUTES News · Clearance</span>
-              <span className="ml-auto rounded-full bg-gold px-2.5 py-1 text-xs font-bold text-graphite">{pct}%</span>
+      {news && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-canvas animate-fade">
+          <div className="shrink-0 border-b border-border bg-graphite">
+            <div className="mx-auto flex max-w-xl items-center gap-2 px-3 py-3">
+              <button onClick={() => { setNews(false); history.replaceState(null, "", "/"); }} className="grid h-10 w-10 place-items-center rounded-full hover:bg-secondary" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
+              <span className="font-display font-semibold">FUTES News</span>
             </div>
-            <div className="space-y-2 p-4">
-              {CLEARANCE.map((c, i) => {
-                const ok = done.includes(i);
-                return (
-                  <button key={c} onClick={() => toggle(i)} className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-[15px] transition-colors ${ok ? "border-gold/40 bg-gold/10" : "border-border bg-secondary/40 hover:bg-secondary"}`}>
-                    {ok ? <CheckCircle2 className="h-5 w-5 shrink-0 text-gold" /> : <Circle className="h-5 w-5 shrink-0 text-muted-foreground" />}
-                    <span className={`flex-1 ${ok ? "text-muted-foreground line-through" : ""}`}>{c}</span>
-                  </button>
-                );
-              })}
-              <p className="pt-2 text-[11px] text-muted-foreground">Confirm each step with the official FUTES notice.</p>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <div className="mx-auto max-w-xl space-y-4 p-4 pb-12">
+              <Author gold name="FUTES News" meta="Official campus press · 2025/2026" />
+              <h1 className="font-display text-3xl font-bold leading-tight">{NEWS.title}</h1>
+              <img src="/futes-crest.jpg" alt="FUTES crest" className="aspect-[16/9] w-full rounded-3xl object-cover" />
+              {NEWS.full.map((p) => <p key={p} className="text-[17px] leading-8 text-foreground/90">{p}</p>)}
+              <button onClick={() => sharePost(NEWS_ID, NEWS.title)} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gold py-3 font-semibold text-graphite"><Share2 className="h-4 w-4" /> Share with your coursemates</button>
             </div>
           </div>
         </div>
