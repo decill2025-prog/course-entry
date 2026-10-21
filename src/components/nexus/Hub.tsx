@@ -317,18 +317,35 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
       </nav>
 
       {viewed && (
-        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-canvas animate-fade">
-          <div className="mx-auto max-w-xl pb-12">
-            <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-graphite/95 px-3 py-3">
+        <div className="fixed inset-0 z-50 flex flex-col bg-canvas animate-fade">
+          <div className="shrink-0 border-b border-border bg-graphite">
+            <div className="mx-auto flex max-w-xl items-center gap-2 px-3 py-3">
               <button onClick={closeView} className="grid h-10 w-10 place-items-center rounded-full hover:bg-secondary" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
               <span className="font-display font-semibold">{viewed.code} · Lesson</span>
             </div>
+          </div>
+          <div className="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto overscroll-contain pb-12">
             <Visual l={viewed} />
             <div className="space-y-4 p-4">
-              <Author faculty={profile.faculty} name={`Nexus AI · ${course}`} meta={`${lvl} · ${viewed.tag}`} />
-              <h1 className="text-shimmer font-display text-3xl font-bold leading-tight">{viewed.title}</h1>
-              <p className="text-[17px] leading-8 text-foreground/90">{viewed.body}</p>
-              <Actions playing={playing === viewed.id} onListen={() => listen(viewed)} onView={() => document.getElementById("trick")?.scrollIntoView({ behavior: "smooth" })} onShare={() => sharePost(viewed.id, viewed.title)} />
+              <Author faculty={profile.faculty} name={<><CourseName name={course} /> AI</>} meta={`${lvl} · ${viewed.courseTitle ?? viewed.tag}`} />
+              <h1 className="font-display text-3xl font-bold leading-tight">{viewed.title}</h1>
+              {viewed.hook && <p className="text-lg font-medium text-primary">{viewed.hook}</p>}
+              {viewed.body.split(/\n+/).map((p) => <p key={p} className="text-[17px] leading-8 text-foreground/90">{p}</p>)}
+              <Actions playing={playing === viewed.id} loading={loadingVoice === viewed.id} onListen={() => listen(viewed)} onView={() => document.getElementById("trick")?.scrollIntoView({ behavior: "smooth" })} onShare={() => sharePost(viewed.id, viewed.title)} />
+              {!!viewed.steps?.length && (
+                <div className="card-solid rounded-3xl p-5">
+                  <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-primary"><GraduationCap className="h-4 w-4" /> Step by step</p>
+                  <ol className="mt-3 space-y-3">
+                    {viewed.steps.map((s, i) => <li key={s} className="flex gap-3 text-[16px] leading-7"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/15 text-sm font-bold text-primary">{i + 1}</span>{s}</li>)}
+                  </ol>
+                </div>
+              )}
+              {viewed.example && (
+                <div className="rounded-3xl border border-primary/30 bg-primary/10 p-5">
+                  <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-primary"><Lightbulb className="h-4 w-4" /> Real-life example</p>
+                  <p className="mt-2 text-[16px] leading-7">{viewed.example}</p>
+                </div>
+              )}
               <div id="trick" className="rounded-3xl border border-gold/30 bg-gold/10 p-5">
                 <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gold"><Brain className="h-4 w-4" /> Memory trick</p>
                 <p className="mt-2 font-display text-xl font-bold leading-snug">{viewed.trick}</p>
