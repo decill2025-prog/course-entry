@@ -378,7 +378,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
 
       {orb && <Nexus lessons={lessons} course={course} level={profile.level} faculty={profile.faculty}
         onClose={() => { stopVoice(); setOrb(false); }}
-        onOpen={(id) => { setOrb(false); if (id === "checklist") setChecklist(true); else if (id === "vault") go("vault"); else setView(id); }}
+        onOpen={(id) => { setOrb(false); if (id === "news") setNews(true); else if (id === "vault") go("vault"); else setView(id); }}
         onNote={(n) => setNotes((x) => [n, ...x])} />}
 
       {bell && (
@@ -508,7 +508,7 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
   const local = (t: string) => {
     const post = lessons.find((p) => t.includes(p.code.toLowerCase()) && /open|show|go/.test(t));
     if (post) return { text: `Roger. Opening ${post.code}.`, act: () => onOpen(post.id) };
-    if (/clearance|checklist|fresher/.test(t)) return { text: "On it. Opening your clearance.", act: () => onOpen("checklist") };
+    if (/news|fresher|registration/.test(t)) return { text: "Roger. Opening FUTES News.", act: () => onOpen("news") };
     if (/vault|timetable|scheme/.test(t)) return { text: "Roger. Study Vault.", act: () => onOpen("vault") };
     if (/draft|letter|document/.test(t)) return { text: "Done. It's in your notifications.", act: () => onNote(`📄 Draft ready: "Letter of Acceptance — ${course}".`) };
     return null;
