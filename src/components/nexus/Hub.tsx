@@ -57,7 +57,17 @@ function Avatar({ gold, faculty, size = 40 }: { gold?: boolean | undefined; facu
   return <img src={src} alt="" width={size} height={size} style={{ width: size, height: size }} className={`shrink-0 rounded-full object-cover ring-2 ${gold ? "ring-gold" : "ring-primary/70"}`} />;
 }
 
-function Author({ gold, faculty, name, meta }: { gold?: boolean | undefined; faculty?: string | undefined; name: string; meta: string }) {
+const HUES = [205, 258, 300, 340, 20, 55, 95, 150, 185];
+/** Course name with every letter in a different colour (AI profile identity). */
+function CourseName({ name }: { name: string }) {
+  return <>{[...name].map((ch, i) => <span key={i} style={{ color: ch === " " ? undefined : `oklch(0.78 0.16 ${HUES[i % HUES.length]})` }}>{ch}</span>)}</>;
+}
+function timeAgo(at: number) {
+  const m = Math.max(1, Math.round((Date.now() - at) / 60000));
+  return m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`;
+}
+
+function Author({ gold, faculty, name, meta }: { gold?: boolean | undefined; faculty?: string | undefined; name: React.ReactNode; meta: string }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
       <Avatar gold={gold} faculty={faculty} />
@@ -93,12 +103,12 @@ function Visual({ l }: { l: Lesson }) {
   );
 }
 
-function Actions({ playing, onListen, onView, onShare }: { playing: boolean; onListen: () => void; onView: () => void; onShare: () => void }) {
+function Actions({ playing, loading, onListen, onView, onShare }: { playing: boolean; loading?: boolean; onListen: () => void; onView: () => void; onShare: () => void }) {
   const b = "flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-colors active:scale-[0.97]";
   return (
     <div className="grid grid-cols-3 gap-2 p-3">
-      <button onClick={onListen} className={`${b} ${playing ? "bg-primary text-primary-foreground" : "bg-secondary hover:bg-secondary/70"}`}>
-        {playing ? <Pause className="h-4 w-4" /> : <Headphones className="h-4 w-4" />} {playing ? "Stop" : "Listen"}
+      <button onClick={onListen} className={`${b} ${playing || loading ? "bg-primary text-primary-foreground" : "bg-secondary hover:bg-secondary/70"}`}>
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : playing ? <Pause className="h-4 w-4" /> : <Headphones className="h-4 w-4" />} {loading ? "Loading…" : playing ? "Stop" : "Listen"}
       </button>
       <button onClick={onView} className={`${b} bg-primary/15 text-primary hover:bg-primary/25`}><Eye className="h-4 w-4" /> View</button>
       <button onClick={onShare} className={`${b} bg-secondary hover:bg-secondary/70`}><Share2 className="h-4 w-4" /> Share</button>
