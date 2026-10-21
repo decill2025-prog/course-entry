@@ -516,17 +516,20 @@ function Switcher({ profile, onClose, onSave, onExit }: { profile: Profile; onCl
   );
 }
 
-type Msg = { from: "ai" | "me"; text: string };
+type Msg = { from: "ai" | "me"; text: string; fresh?: boolean };
 
 function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { lessons: Lesson[]; course: string; level: Level; faculty: string; onClose: () => void; onOpen: (id: string) => void; onNote: (n: string) => void }) {
   const [msgs, setMsgs] = useState<Msg[]>([{ from: "ai", text: `Hey, I'm Nexus — your ${course} coursemate. Ask me anything, or tap the mic.` }]);
   const [input, setInput] = useState("");
-  const [state, setState] = useState<"idle" | "listening" | "thinking" | "speaking">("idle");
+  const [state, setState] = useState<"idle" | "listening" | "thinking" | "voice" | "speaking">("idle");
   const rec = useRef<MediaRecorder | null>(null);
   const end = useRef<HTMLDivElement>(null);
+  const chatKey = `nexus.chat.${course}`;
+  useEffect(() => { try { const m = JSON.parse(localStorage.getItem(chatKey) || "null") as Msg[] | null; if (m?.length) setMsgs(m.map((x) => ({ ...x, fresh: false }))); } catch { /* ignore */ } }, [chatKey]);
+  useEffect(() => { try { localStorage.setItem(chatKey, JSON.stringify(msgs.slice(-40).map(({ from, text }) => ({ from, text })))); } catch { /* ignore */ } }, [msgs, chatKey]);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs, state]);
   useEffect(() => () => { rec.current?.state === "recording" && rec.current.stop(); }, []);
-  const chips = [`Explain ${lessons[0]?.code ?? "my course"} simply`, "Open my clearance", "Draft acceptance letter"];
+  const chips = [`Explain ${lessons[0]?.code ?? "my course"} simply`, "Open FUTES News", "Draft acceptance letter"];
 
   // Local intents: 0 API calls, instant.
   const local = (t: string) => {
@@ -539,8 +542,13 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
   };
 
   const say = async (text: string) => {
-    setState("speaking");
-    try { const ok = await playVoice(text, () => setState("idle")); if (!ok) setState("idle"); } catch { setState("idle"); }
+    setState("voice");
+    let ended = false;
+    try {
+      const p = playVoice(text, () => { ended = true; setState("idle"); });
+      const ok = await p;
+      if (!ok || ended) setState("idle"); else setState("speaking");
+    } catch { setState("idle"); }
   };
 
   const send = async (text: string) => {
@@ -584,7 +592,7 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
     } catch { toast.error("Allow microphone access to talk to Nexus."); }
   };
 
-  const label = { idle: "Tap the mic and talk", listening: "Listening… tap to send", thinking: "Thinking…", speaking: "Speaking…" }[state];
+  const label = { idle: "Tap the mic and talk", listening: "Listening… tap to send", thinking: "Thinking…", voice: "Preparing voice… please wait", speaking: "Speaking…" }[state];
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/85 animate-fade" onClick={onClose}>
@@ -598,10 +606,10 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
           {msgs.map((m, i) => (
             <div key={i} className={`flex items-end gap-2 ${m.from === "me" ? "justify-end" : ""}`}>
               {m.from === "ai" && <Avatar faculty={faculty} size={26} />}
-              <p className={`max-w-[82%] rounded-2xl px-3.5 py-2 text-[15px] leading-relaxed ${m.from === "ai" ? "bg-secondary" : "bg-primary text-primary-foreground"}`}>{m.text}</p>
+              <p className={`max-w-[82%] rounded-2xl px-3.5 py-2 text-[15px] leading-relaxed ${m.from === "ai" ? "bg-secondary" : "bg-primary text-primary-foreground"}`}>{m.from === "ai" && m.fresh !== false ? m.text.split(" ").map((w, j) => <span key={j} className="word-up" style={{ animationDelay: `${Math.min(j * 35, 2500)}ms` }}>{w}&nbsp;</span>) : m.text}</p>
             </div>
           ))}
-          {state === "thinking" && <p className="ml-9 w-fit rounded-2xl bg-secondary px-3.5 py-2 text-sm text-muted-foreground">…</p>}
+          {(state === "thinking" || state === "voice") && <p className="busy-glow ml-9 flex w-fit items-center gap-2 rounded-2xl bg-primary/15 px-3.5 py-2 text-sm text-primary"><Loader2 className="h-4 w-4 animate-spin" />{state === "voice" ? "Preparing voice…" : "Nexus is thinking…"}</p>}
           <div ref={end} />
         </div>
         <div className="mb-2 flex shrink-0 gap-2 overflow-x-auto">
