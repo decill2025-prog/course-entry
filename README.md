@@ -1,30 +1,29 @@
-# FUTES Nexus
+# Welcome to your Lovable project
 
-An AI-powered study feed designed to help university students study smarter and faster. 
+This project was built with [Lovable](https://lovable.dev).
 
-Built by [MWW Studio] for the Iyin-Ekiti TechFest 2026.
+## Build with Lovable
 
-## 📱 About the App
-FUTES Nexus turns any course outline into a daily feed of study cards. Instead of scrolling through endless PDFs, students get short, focused summaries, memory tricks, and exam traps tailored to their specific level and department.
+Open your project in the [Lovable editor](https://lovable.dev) and keep building.
 
-## ✨ Features
-*   **Course-Specific Feed:** Select your level (100L / 200L) and course to get relevant study material.
-*   **Study Vault:** Read and save specific cards for later.
-*   **Memory Tricks:** Mnemonic devices to help remember complex topics.
-*   **Exam Traps:** Highlights common mistakes students make in exams.
-*   **Responsive UI:** A premium, dark-mode interface that works seamlessly on mobile and desktop.
+- **Ship faster**: describe what you want to build and Lovable handles the code.
+- **Stay in sync**: connect the project to GitHub and every change made in Lovable is committed straight to your repository.
+- **Full ownership**: this code is yours. Push to your repository and your changes sync back into Lovable, ready for your next prompt.
 
-## 🛠️ Tech Stack
-*   **Framework:** React + Vite
-*   **Styling:** Tailwind CSS
-*   **Deployment:** Vercel
-*   **Architecture:** Progressive Web App (PWA)
+## Development
 
-## 💻 Running Locally
-To run this project on your machine:
+Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
 
 ```sh
-git clone https://github.com/decill2025-prog/course-entry.git
-cd course-entry
-npm install
+git clone <this-repository-url>
+cd <repository-name>
+npm i
 npm run dev
+```
+
+## Built with
+
+- TanStack Start
+- TypeScript
+- React
+- Tailwind CSS
