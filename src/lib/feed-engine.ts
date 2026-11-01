@@ -4,7 +4,7 @@ import type { Level } from "@/lib/nexus-data";
 import type { Icon, Lesson } from "@/lib/lessons";
 import { topicsFor } from "@/lib/scheme";
 
-export type StoredPost = Lesson & { ai: true; hook: string; steps: string[]; example: string; at: number; courseTitle: string };
+export type StoredPost = Lesson & { ai: true; hook: string; steps: string[]; example: string; at: number; courseTitle: string; say?: string };
 
 export const DAILY_CAP = 15; // posts generated per device per day (5 Groq keys ≈ 5,000/day shared by everyone)
 export const SESSION_BATCH = 3;
@@ -45,17 +45,28 @@ export function nextTopic(level: Level, course: string, faculty: string, used: S
   if (!all.length) return null;
   const start = deviceSeed() % all.length;
   for (let i = 0; i < all.length; i++) {
-    const t = all[(start + i * 7) % all.length]!;
+    const t = all[(start + i) % all.length]!;
     if (!used.has(`${t.code}:${t.topic}`)) return t;
   }
   return all[(start + used.size) % all.length]!; // all covered: revise
 }
 
-export function toStored(p: { title: string; hook: string; body: string; steps: string[]; example: string; trick: string; trap: string; points: string[] }, t: { code: string; courseTitle: string; topic: string }): StoredPost {
+export function toStored(p: { title: string; hook: string; body: string; steps: string[]; example: string; trick: string; trap: string; points: string[]; say?: string }, t: { code: string; courseTitle: string; topic: string }, id?: string, at?: number): StoredPost {
   const h = [...t.code].reduce((a, c) => a + c.charCodeAt(0), 0);
   return {
-    id: `ai-${Date.now().toString(36)}`, ai: true, code: t.code, tag: t.topic, courseTitle: t.courseTitle,
+    id: id ?? `ai-${Date.now().toString(36)}`, ai: true, say: p.say, code: t.code, tag: t.topic, courseTitle: t.courseTitle,
     title: p.title, hook: p.hook, body: p.body, steps: p.steps, example: p.example, trick: p.trick, trap: p.trap,
-    points: p.points.length ? p.points : [t.topic], hue: (h * 37) % 360, icon: ICONS[h % ICONS.length]!, at: Date.now(),
+    points: p.points.length ? p.points : [t.topic], hue: (h * 37) % 360, icon: ICONS[h % ICONS.length]!, at: at ?? Date.now(),
   };
+}
+
+/** Merge server lessons with saved ones: no duplicate ids or topics, newest first. */
+export function mergePosts(a: StoredPost[], b: StoredPost[]): StoredPost[] {
+  const seen = new Set<string>(); const out: StoredPost[] = [];
+  for (const p of [...a, ...b].sort((x, y) => y.at - x.at)) {
+    const k = `${p.code}:${p.tag}`;
+    if (seen.has(p.id) || seen.has(k)) continue;
+    seen.add(p.id); seen.add(k); out.push(p);
+  }
+  return out;
 }

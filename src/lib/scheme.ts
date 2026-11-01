@@ -28,8 +28,16 @@ const ENV102 = "ENV 102|Graphic Communication|drawing equipment; freehand sketch
 const CORE100: Record<string, string[]> = {
   computing: [COS101, COS102, MTH101, MTH102, PHY101, STA111, GST111],
   engineering: [MTH101, MTH102, PHY101, PHY102, CHM101, GET101, GET102, GST111],
-  science: [BIO101, CHM101, CHM102, PHY101, MTH101, COS101, STA111, GST111],
-  environment: [ENV101, ENV102, MTH101, PHY101, COS101, STA111, GST111],
+  science: [BIO101, CHM101, CHM102, PHY101, MTH101, STA111, GST111],
+  environment: [ENV101, ENV102, MTH101, PHY101, STA111, GST111],
+};
+
+/** Programmes whose 100L core differs from their faculty bucket (CCMAS foundation courses). */
+const FWM101 = "FWM 101|Introduction to Forestry and Wildlife|what a forest is; Nigerian vegetation zones; uses of forests; trees and climate; wildlife conservation basics";
+const DEPT100: Record<string, string[]> = {
+  "Forestry and environmental Management": [FWM101, BIO101, CHM101, ENV101, MTH101, STA111, GST111],
+  "Environmental Management": [ENV101, BIO101, CHM101, MTH101, STA111, GST111],
+  "Industrial Design": [ENV102, ENV101, MTH101, PHY101, GST111],
 };
 
 const GST212 = "GST 212|Philosophy, Logic and Human Existence|what philosophy is; logic and arguments; fallacies; ethics; critical thinking";
@@ -89,7 +97,7 @@ const DEPT200: Record<string, string[]> = {
 export function schemeFor(level: Level, course: string, faculty: string): SchemeCourse[] {
   const g = groupOf(faculty);
   const name = course.replace(/^B\.(Sc|Eng)\.\s*/, "");
-  const list = level === "100 Level" ? CORE100[g] ?? [] : [...(DEPT200[name] ?? []), ...(COMMON200[g] ?? [])];
+  const list = level === "100 Level" ? DEPT100[name] ?? CORE100[g] ?? [] : [...(DEPT200[name] ?? []), ...(COMMON200[g] ?? [])];
   return list.map(P);
 }
 
