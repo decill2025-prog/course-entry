@@ -7,6 +7,18 @@ const toB64 = (buf: ArrayBuffer) => {
   return btoa(bin);
 };
 
+/** Strips markdown/emoji noise so the text reads well on screen and through the voice. */
+export function cleanText(t: string): string {
+  return t
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/\*\*\*|\*\*|__|\*|`|#{1,6}\s?/g, "")
+    .replace(/^\s*[-•]\s+/gm, "")
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 type Turn = { role: "user" | "assistant"; content: string };
 type ChatMsg = { role: "system" | "user" | "assistant"; content: string };
 
@@ -18,10 +30,10 @@ async function chat(keys: string[], clean: string | undefined, messages: ChatMsg
     const key = keys[(cursor + i) % n]!;
     try {
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
+        method: "POST", signal: AbortSignal.timeout(9000),
         headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "openai/gpt-oss-20b", reasoning_effort: "low", temperature: 0.6, max_tokens: opts.max ?? 700, messages,
+          model: "llama-3.3-70b-versatile", temperature: 0.6, max_tokens: opts.max ?? 700, messages,
           ...(opts.json ? { response_format: { type: "json_object" } } : {}),
         }),
       });
@@ -37,7 +49,7 @@ async function chat(keys: string[], clean: string | undefined, messages: ChatMsg
   for (const model of ["deepseek-v4-flash-0731", "gemini-3.6-flash"]) {
     try {
       const res = await fetch("https://cleanapis.com/v1/chat/completions", {
-        method: "POST",
+        method: "POST", signal: AbortSignal.timeout(12000),
         headers: { Authorization: `Bearer ${clean}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model, temperature: 0.6, max_tokens: opts.max ?? 700, messages, ...(opts.json ? { response_format: { type: "json_object" } } : {}) }),
       });
@@ -64,9 +76,10 @@ export const askJarvis = createServerFn({ method: "POST" })
     })),
   }))
   .handler(async ({ data }) => {
-    const system = `You are Nexus, a friendly senior coursemate at FUTES (Federal University of Technology and Environmental Sciences), Iyin-Ekiti, Nigeria. The student is ${data.level}, studying ${data.course}. Teach like talking to a struggling fresher: start with a simple everyday Nigerian-life example, then the plain rule in at most 3 short sentences, then one memory trick, then one exam trap if relevant. Keep the whole answer under 90 words. No markdown, no list symbols, no jargon without explaining it.`;
+    const system = `You are Nexus, a warm senior coursemate at FUTES (Federal University of Technology and Environmental Sciences), Iyin-Ekiti, Nigeria. The student is ${data.level}, studying ${data.course}. Your answers are read on screen AND spoken aloud, so write the way a clear teacher talks. Rules: short sentences of under 15 words. Start with one everyday Nigerian picture (danfo, suya, NEPA light, market, hostel). Then give the plain rule in one or two sentences. Then one vivid memory hook that is funny or visual, never a weird acronym. End with the one exam mistake to avoid. Under 110 words. Plain text only: no asterisks, no hashtags, no bullet symbols, no emojis. Explain any technical word the moment you use it.`;
     const text = await chat(groqKeys(), process.env["CLEANAPIS_API_KEY"], [{ role: "system", content: system }, ...data.history, { role: "user", content: data.question }]);
-    return { text, error: text ? null : "busy" };
+    const clean = text ? cleanText(text) : null;
+    return { text: clean, error: clean ? null : "busy" };
   });
 
 export type AIPost = { title: string; hook: string; body: string; steps: string[]; example: string; trick: string; trap: string; points: string[] };
