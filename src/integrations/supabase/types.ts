@@ -14,7 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      nexus_posts: {
+        Row: {
+          code: string
+          course: string
+          created_at: string
+          id: string
+          level: string
+          payload: Json
+          topic: string
+        }
+        Insert: {
+          code: string
+          course: string
+          created_at?: string
+          id: string
+          level: string
+          payload: Json
+          topic: string
+        }
+        Update: {
+          code?: string
+          course?: string
+          created_at?: string
+          id?: string
+          level?: string
+          payload?: Json
+          topic?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
