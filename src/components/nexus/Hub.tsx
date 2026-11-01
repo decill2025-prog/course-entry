@@ -7,19 +7,19 @@ import {
 } from "lucide-react";
 import { COURSES, LEVELS, TIMETABLE, courseName, type Level } from "@/lib/nexus-data";
 import { groupOf, lessonsFor, type Icon, type Lesson } from "@/lib/lessons";
-import { askJarvis, generatePost, speak, transcribe } from "@/lib/ai.functions";
-import { SESSION_BATCH, loadPosts, nextTopic, remainingToday, savePosts, spendOne, toStored, type StoredPost } from "@/lib/feed-engine";
+import { askJarvis, generatePost, getShared, listShared, makeQuiz, speak, transcribe, type QuizQ, type SharedPost } from "@/lib/ai.functions";
+import { SESSION_BATCH, loadPosts, mergePosts, nextTopic, remainingToday, savePosts, spendOne, toStored, type StoredPost } from "@/lib/feed-engine";
 import { kittenReady, speakOffline, stopKitten, warmKitten } from "@/lib/offline-voice";
 
 export type Profile = { level: Level; course: string; faculty: string };
 const ICONS: Record<Icon, typeof Cpu> = { cpu: Cpu, flask: FlaskConical, atom: Atom, sigma: Sigma, book: BookOpen, cog: Cog, building: Building2, dna: Dna };
 const NEWS_ID = "futes-news";
 const NEWS = {
-  title: "TO THE FRESHERS ✅❤️",
-  short: "Welcome to FUTES Iyin-Ekiti! Physical registration for 2025/2026 is ongoing. Here's what to bring.",
+  title: "To the freshers: what to bring for registration",
+  short: "Welcome to FUTES Iyin-Ekiti. Starting physical registration for 2026/2027? Here is what students are usually asked to bring.",
   full: [
     "Congratulations on your admission into the Federal University of Technology and Environmental Sciences, Iyin-Ekiti.",
-    "Physical registration and documentation for the 2025/2026 academic session is ongoing. Come with the originals and photocopies of: JAMB admission letter, JAMB result slip, O'Level result(s), birth certificate or age declaration, local government identification letter, passport photographs, acceptance fee and school fee receipts, and your printed online registration forms.",
+    "For the 2026/2027 session, confirm dates on the official FUTES portal and notice boards. Students are usually asked to come with the originals and photocopies of: JAMB admission letter, JAMB result slip, O'Level result(s), birth certificate or age declaration, local government identification letter, passport photographs, acceptance fee and school fee receipts, and your printed online registration forms.",
     "Arrange your documents in a file before coming to your department. Follow official FUTES channels only for payments — never pay anyone privately.",
     "Welcome to the FUTES family. Read hard, stay safe, and enjoy the journey.",
   ],
@@ -83,7 +83,9 @@ function Author({ gold, faculty, name, meta }: { gold?: boolean | undefined; fac
   );
 }
 
-function Visual({ l }: { l: Lesson }) {
+const fromShared = (r: SharedPost): StoredPost => toStored(r.payload, { code: r.code, courseTitle: r.payload.courseTitle ?? r.code, topic: r.topic }, r.id, Date.parse(r.created_at) || Date.now());
+
+function Visual({ l, hideTitle }: { l: Lesson; hideTitle?: boolean }) {
   const I = ICONS[l.icon];
   return (
     <div className="relative aspect-square overflow-hidden" style={{ background: `radial-gradient(circle at 75% 20%, oklch(0.62 0.2 ${l.hue}), oklch(0.22 0.07 ${l.hue + 25}) 72%)` }}>
@@ -94,7 +96,7 @@ function Visual({ l }: { l: Lesson }) {
         <span className="text-xs font-medium text-foreground/80">{l.tag}</span>
       </div>
       <div className="absolute inset-x-5 bottom-5">
-        <p className="font-display text-2xl font-bold leading-tight sm:text-3xl">{l.title}</p>
+        {!hideTitle && <p className="font-display text-2xl font-bold leading-tight sm:text-3xl">{l.title}</p>}
         <div className="mt-3 flex items-start gap-2 rounded-2xl bg-background/70 p-3 text-sm">
           <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
           <span className="leading-snug">{l.trick}</span>
@@ -104,14 +106,14 @@ function Visual({ l }: { l: Lesson }) {
   );
 }
 
-function Actions({ playing, loading, onListen, onView, onShare }: { playing: boolean; loading?: boolean; onListen: () => void; onView: () => void; onShare: () => void }) {
+function Actions({ playing, loading, onListen, onView, onShare, viewLabel = "View" }: { playing: boolean; loading?: boolean; onListen: () => void; onView: () => void; onShare: () => void; viewLabel?: string }) {
   const b = "flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-colors active:scale-[0.97]";
   return (
     <div className="grid grid-cols-3 gap-2 p-3">
       <button onClick={onListen} className={`${b} ${playing || loading ? "bg-primary text-primary-foreground" : "bg-secondary hover:bg-secondary/70"}`}>
         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : playing ? <Pause className="h-4 w-4" /> : <Headphones className="h-4 w-4" />} {loading ? "Loading…" : playing ? "Stop" : "Listen"}
       </button>
-      <button onClick={onView} className={`${b} bg-primary/15 text-primary hover:bg-primary/25`}><Eye className="h-4 w-4" /> View</button>
+      <button onClick={onView} className={`${b} bg-primary/15 text-primary hover:bg-primary/25`}><Eye className="h-4 w-4" /> {viewLabel}</button>
       <button onClick={onShare} className={`${b} bg-secondary hover:bg-secondary/70`}><Share2 className="h-4 w-4" /> Share</button>
     </div>
   );
@@ -136,7 +138,8 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
   const [online, setOnline] = useState(true);
   const [notes, setNotes] = useState<string[]>([]);
   const [bell, setBell] = useState(false);
-  const [rounds, setRounds] = useState(1);
+  const [quiz, setQuiz] = useState<Lesson | null>(null);
+  const [extra, setExtra] = useState<StoredPost | null>(null);
   const [hidden, setHidden] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
   const [loadingVoice, setLoadingVoice] = useState<string | null>(null);
@@ -148,7 +151,10 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
   const course = courseName(profile.course);
   const lvl = profile.level.replace(" Level", "L");
   const lessons = useMemo(() => lessonsFor(profile.level, profile.faculty), [profile.level, profile.faculty]);
-  const all = useMemo<Lesson[]>(() => [...aiPosts, ...lessons], [aiPosts, lessons]);
+  const all = useMemo<Lesson[]>(() => {
+    const keys = new Set(aiPosts.map((p) => `${p.code}:${p.title}`));
+    return [...aiPosts, ...lessons.filter((l) => !keys.has(`${l.code}:${l.title}`))];
+  }, [aiPosts, lessons]);
 
   useEffect(() => {
     setOnline(navigator.onLine);
@@ -156,7 +162,12 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
     const on = () => setOnline(true), off = () => setOnline(false);
     window.addEventListener("online", on); window.addEventListener("offline", off);
     const id = new URLSearchParams(window.location.search).get("post");
-    if (id === NEWS_ID) setNews(true); else if (id) setView(id);
+    if (id === NEWS_ID) setNews(true);
+    else if (id) {
+      setView(id);
+      // Shared link from another course: fetch that one lesson from the shared library.
+      if (id.startsWith("ai-") && navigator.onLine) void getShared({ data: { id } }).then((r) => { if (r.post) setExtra(fromShared(r.post)); }).catch(() => {});
+    }
     // Installed app: fetch the offline voice quietly once, so it speaks even in airplane mode.
     if (navigator.onLine && !kittenReady() && window.matchMedia("(display-mode: standalone)").matches) {
       const t = setTimeout(() => { void warmKitten().then(setVoiceOffline); }, 6000);
@@ -187,18 +198,31 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
         const r = await generatePost({ data: { level: profile.level, course, code: t.code, courseTitle: t.courseTitle, topic: t.topic } }).catch(() => ({ post: null }));
         if (!r.post) break;
         spendOne();
-        const next = [toStored(r.post, t), ...saved];
+        const next = mergePosts([toStored(r.post, t, r.id ?? undefined)], saved);
         savePosts(profile.level, profile.course, next);
         setAiPosts(next);
-        if (i < count - 1) await new Promise((res) => setTimeout(res, 2500));
+        if (i < count - 1) await new Promise((res) => setTimeout(res, 2000));
       }
     } finally { busy.current = false; setWriting(false); }
   };
   useEffect(() => {
+    let alive = true;
     const saved = loadPosts(profile.level, profile.course);
     setAiPosts(saved);
-    const fresh = saved[0] && Date.now() - saved[0].at < 30 * 60 * 1000;
-    if (!fresh) void writeMore(SESSION_BATCH);
+    void (async () => {
+      let merged = saved;
+      if (navigator.onLine) {
+        // Shared library: lessons other students already unlocked — loads on every domain, costs no AI request.
+        const r = await listShared({ data: { level: profile.level, course } }).catch(() => ({ posts: [] as SharedPost[] }));
+        if (!alive) return;
+        merged = mergePosts(r.posts.map(fromShared), saved);
+        savePosts(profile.level, profile.course, merged);
+        setAiPosts(merged);
+      }
+      const fresh = merged[0] && Date.now() - merged[0].at < 20 * 60 * 1000;
+      if (!fresh || merged.length < 6) void writeMore(SESSION_BATCH);
+    })();
+    return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile.level, profile.course]);
 
@@ -206,7 +230,6 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
     const el = sentinel.current; if (!el) return;
     const io = new IntersectionObserver((e) => {
       if (!e[0]?.isIntersecting) return;
-      setRounds((r) => Math.min(r + 1, 20));
       void writeMore(1);
     }, { rootMargin: "800px" });
     io.observe(el); return () => io.disconnect();
@@ -214,7 +237,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
   }, [tab, profile.course, profile.level]);
 
   // Lock page scroll under overlays so nothing jumps behind them.
-  const overlay = !!view || news || orb || switcher || bell;
+  const overlay = !!view || news || orb || switcher || bell || !!quiz;
   useEffect(() => { document.body.style.overflow = overlay ? "hidden" : ""; return () => { document.body.style.overflow = ""; }; }, [overlay]);
 
   const listen = async (l: Lesson) => {
@@ -222,7 +245,9 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
     setLoadingVoice(l.id); setPlaying(null);
     if (!navigator.onLine && !kittenReady()) toast("Preparing offline voice — first time takes a moment.");
     try {
-      const text = `${l.title}. ${l.body.replace(/\n+/g, " ")} Memory trick: ${l.trick}`;
+      // Short spoken version = fast audio (about 2 seconds to start) and easy to follow.
+      const say = (l as Partial<StoredPost>).say;
+      const text = say || `${l.title}. ${l.body.split(/\n+/)[0]} Remember it like this: ${l.trick}`;
       let ended = false;
       const ok = await playVoice(text, () => { ended = true; setPlaying(null); });
       setLoadingVoice(null);
@@ -231,7 +256,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
     } catch { setLoadingVoice(null); setPlaying(null); toast.error("Couldn't play audio — check your connection."); }
   };
 
-  const viewed = all.find((p) => p.id === view) as (Lesson & Partial<StoredPost>) | undefined;
+  const viewed = (all.find((p) => p.id === view) ?? (extra?.id === view ? extra : undefined)) as (Lesson & Partial<StoredPost>) | undefined;
   const closeView = () => { setView(null); history.replaceState(null, "", "/"); };
   const go = (t: "feed" | "vault") => { setTab(t); window.scrollTo({ top: 0 }); setHidden(false); };
 
@@ -263,8 +288,8 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
           <>
             <article className="card-solid gold-ring overflow-hidden rounded-3xl">
               <div className="p-4">
-                <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-gold"><Pin className="h-3.5 w-3.5" /> Pinned by FUTES News</div>
-                <Author gold name="FUTES News" meta="Official campus press · 2025/2026" />
+                <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-gold"><Pin className="h-3.5 w-3.5" /> Pinned · Student guide</div>
+                <Author gold name="FUTES News" meta="Student guide · 2026/2027" />
                 <h2 className="mt-3 font-display text-xl font-bold">{NEWS.title}</h2>
                 <p className="mt-1.5 text-[16px] leading-relaxed text-foreground/90">{NEWS.short}</p>
               </div>
@@ -395,7 +420,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <div className="mx-auto max-w-xl space-y-4 p-4 pb-12">
-              <Author gold name="FUTES News" meta="Official campus press · 2025/2026" />
+              <Author gold name="FUTES News" meta="Student guide · 2026/2027" />
               <h1 className="font-display text-3xl font-bold leading-tight">{NEWS.title}</h1>
               <img src="/futes-crest.jpg" alt="FUTES crest" className="aspect-[16/9] w-full rounded-3xl object-cover" />
               {NEWS.full.map((p) => <p key={p} className="text-[17px] leading-8 text-foreground/90">{p}</p>)}
@@ -418,7 +443,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
             <p className="font-display text-lg font-bold">Notifications</p>
             <div className="mt-3 space-y-2 text-sm">
               {notes.map((n, i) => <p key={i} className="rounded-2xl bg-secondary/60 p-3">{n}</p>)}
-              <p className="rounded-2xl bg-secondary/60 p-3">📌 FUTES News pinned the fresher clearance steps.</p>
+              <p className="rounded-2xl bg-secondary/60 p-3">FUTES News pinned the 2026/2027 registration guide.</p>
             </div>
           </div>
         </div>
