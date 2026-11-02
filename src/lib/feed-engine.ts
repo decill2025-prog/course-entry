@@ -56,7 +56,7 @@ export function toStored(p: { title: string; hook: string; body: string; steps: 
   return {
     id: id ?? `ai-${Date.now().toString(36)}`, ai: true, say: p.say, code: t.code, tag: t.topic, courseTitle: t.courseTitle,
     title: p.title, hook: p.hook, body: p.body, steps: p.steps, example: p.example, trick: p.trick, trap: p.trap,
-    points: p.points.length ? p.points : [t.topic], hue: (h * 37) % 360, icon: ICONS[h % ICONS.length]!, at: at ?? Date.now(),
+    points: (p.points.filter((x) => x.trim().length > 3 && x.length < 90 && !/^say\b/i.test(x.trim())).slice(0, 3).length ? p.points.filter((x) => x.trim().length > 3 && x.length < 90 && !/^say\b/i.test(x.trim())).slice(0, 3) : [t.topic]), hue: (h * 37) % 360, icon: ICONS[h % ICONS.length]!, at: at ?? Date.now(),
   };
 }
 
