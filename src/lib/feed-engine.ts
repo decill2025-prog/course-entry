@@ -4,7 +4,7 @@ import type { Level } from "@/lib/nexus-data";
 import type { Icon, Lesson } from "@/lib/lessons";
 import { topicsFor } from "@/lib/scheme";
 
-export type StoredPost = Lesson & { ai: true; hook: string; steps: string[]; example: string; at: number; courseTitle: string; say?: string };
+export type StoredPost = Lesson & { ai: true; hook: string; steps: string[]; example: string; at: number; courseTitle: string; say?: string | undefined };
 
 export const DAILY_CAP = 15; // posts generated per device per day (5 Groq keys ≈ 5,000/day shared by everyone)
 export const SESSION_BATCH = 3;
@@ -51,12 +51,12 @@ export function nextTopic(level: Level, course: string, faculty: string, used: S
   return all[(start + used.size) % all.length]!; // all covered: revise
 }
 
-export function toStored(p: { title: string; hook: string; body: string; steps: string[]; example: string; trick: string; trap: string; points: string[]; say?: string }, t: { code: string; courseTitle: string; topic: string }, id?: string, at?: number): StoredPost {
+export function toStored(p: { title: string; hook: string; body: string; steps: string[]; example: string; trick: string; trap: string; points: string[]; say?: string | undefined }, t: { code: string; courseTitle: string; topic: string }, id?: string, at?: number): StoredPost {
   const h = [...t.code].reduce((a, c) => a + c.charCodeAt(0), 0);
   return {
     id: id ?? `ai-${Date.now().toString(36)}`, ai: true, say: p.say, code: t.code, tag: t.topic, courseTitle: t.courseTitle,
     title: p.title, hook: p.hook, body: p.body, steps: p.steps, example: p.example, trick: p.trick, trap: p.trap,
-    points: p.points.length ? p.points : [t.topic], hue: (h * 37) % 360, icon: ICONS[h % ICONS.length]!, at: at ?? Date.now(),
+    points: (p.points.filter((x) => x.trim().length > 3 && x.length < 90 && !/^say\b/i.test(x.trim())).slice(0, 3).length ? p.points.filter((x) => x.trim().length > 3 && x.length < 90 && !/^say\b/i.test(x.trim())).slice(0, 3) : [t.topic]), hue: (h * 37) % 360, icon: ICONS[h % ICONS.length]!, at: at ?? Date.now(),
   };
 }
 

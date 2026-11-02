@@ -26,24 +26,30 @@ type ChatMsg = { role: "system" | "user" | "assistant"; content: string };
 let cursor = 0;
 async function chat(keys: string[], clean: string | undefined, messages: ChatMsg[], opts: { json?: boolean; max?: number } = {}): Promise<string | null> {
   const n = keys.length;
+  // Fast Qwen first (~200ms, no thinking), GPT-OSS as same-key backup.
+  const models = [{ model: "qwen/qwen3.8-27b", reasoning_effort: "none" }, { model: "openai/gpt-oss-20b", reasoning_effort: "low" }];
   for (let i = 0; i < n; i++) {
     const key = keys[(cursor + i) % n]!;
-    try {
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST", signal: AbortSignal.timeout(9000),
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "llama-3.3-70b-versatile", temperature: 0.6, max_tokens: opts.max ?? 700, messages,
-          ...(opts.json ? { response_format: { type: "json_object" } } : {}),
-        }),
-      });
-      if (res.ok) {
-        cursor = (cursor + i + 1) % n;
-        const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-        const t = (j.choices?.[0]?.message?.content ?? "").trim();
-        if (t) return t;
-      } else console.error("groq", res.status);
-    } catch (e) { console.error("groq err", e); }
+    for (const m of models) {
+      try {
+        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST", signal: AbortSignal.timeout(9000),
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...m, temperature: 0.6, max_tokens: opts.max ?? 700, messages,
+            ...(opts.json ? { response_format: { type: "json_object" } } : {}),
+          }),
+        });
+        if (res.ok) {
+          const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+          const t = (j.choices?.[0]?.message?.content ?? "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+          if (t) { cursor = (cursor + i + 1) % n; return t; }
+        } else {
+          console.error("groq", m.model, res.status);
+          if (res.status === 429) break; // this key is rate-limited: next key
+        }
+      } catch (e) { console.error("groq err", e); }
+    }
   }
   if (!clean) return null;
   for (const model of ["deepseek-v4-flash-0731", "gemini-3.6-flash"]) {

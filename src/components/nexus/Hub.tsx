@@ -262,12 +262,12 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
 
   return (
     <div className="min-h-dvh bg-canvas">
-      <header className="fixed inset-x-0 top-0 z-40 border-b border-primary/15 bg-graphite/95">
-        <div className="mx-auto flex h-[68px] max-w-xl items-center justify-between gap-2 px-4">
+      <header className="nexus-header fixed inset-x-0 top-0 z-40 h-[72px]">
+        <div className="mx-auto flex h-full max-w-xl items-center justify-between gap-2 px-4">
           <div className="flex min-w-0 items-center gap-3">
-            <img src="/futes-crest.jpg" alt="FUTES" className="h-11 w-11 rounded-xl object-cover ring-1 ring-primary/30" />
-            <div className="min-w-0 leading-tight">
-              <p className="font-display text-[17px] font-bold tracking-wide">FUTES <span className="text-primary">// NEXUS</span></p>
+            <img src="/futes-crest.jpg" alt="FUTES" width={44} height={44} className="h-11 w-11 shrink-0 rounded-2xl object-cover ring-2 ring-primary/40" />
+            <div className="min-w-0 leading-none">
+              <p className="whitespace-nowrap font-display text-[18px] font-extrabold tracking-[0.14em]"><span className="text-foreground">FUTES</span> <span className="brand-gradient">NEXUS</span></p>
               <button onClick={() => setSwitcher(true)} className="mt-0.5 flex max-w-full items-center gap-1 rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20">
                 <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${online ? "bg-emerald" : "bg-warning"}`} />
                 <span className="truncate">{lvl} · {course}</span>
@@ -280,10 +280,10 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
             <span className="absolute right-2.5 top-2.5 h-2.5 w-2.5 animate-pulse rounded-full bg-primary ring-2 ring-graphite" />
           </button>
         </div>
-        {!online && <div className="flex items-center justify-center gap-2 bg-warning py-1.5 text-xs font-medium text-graphite"><WifiOff className="h-3.5 w-3.5" /> You're offline — showing saved posts</div>}
+        {!online && <div className="absolute inset-x-0 top-full flex items-center justify-center gap-2 bg-warning py-1.5 text-xs font-medium text-graphite"><WifiOff className="h-3.5 w-3.5" /> You're offline — showing saved posts</div>}
       </header>
 
-      <main className="mx-auto max-w-xl space-y-4 px-3 pb-36 pt-[84px]">
+      <main className="mx-auto max-w-xl space-y-4 px-3 pb-40 pt-[88px]">
         {tab === "feed" ? (
           <>
             <article className="card-solid gold-ring overflow-hidden rounded-3xl">
@@ -310,13 +310,12 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
               </div>
             )}
 
-            {Array.from({ length: rounds }).flatMap((_, r) => all.map((l, i) => {
-              const n = r * all.length + i;
+            {all.map((l, n) => {
               const ai = l as Lesson & Partial<StoredPost>;
               return (
-                <article key={`${l.id}-${r}`} className="feed-card card-solid overflow-hidden rounded-3xl">
+                <article key={l.id} className="feed-card card-solid overflow-hidden rounded-3xl">
                   <div className="p-4 pb-3">
-                    <Author faculty={profile.faculty} name={<><CourseName name={course} /> AI</>} meta={`${r ? "Revision · " : ""}${ai.at ? timeAgo(ai.at) : `${n * 7 + 3}m`} · ${lvl} · ${l.code}`} />
+                    <Author faculty={profile.faculty} name={<><CourseName name={course} /> AI</>} meta={`${ai.at ? timeAgo(ai.at) : `${n * 7 + 3}m`} · ${lvl} · ${l.code}`} />
                     <h3 className="mt-3 font-display text-lg font-bold leading-snug">{l.title}</h3>
                     {ai.hook && <p className="mt-1 text-[15px] font-medium text-primary">{ai.hook}</p>}
                     <p className="mt-2 line-clamp-6 whitespace-pre-line text-[16px] leading-relaxed text-foreground/90">{l.body}</p>
@@ -326,8 +325,8 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
                   <Actions playing={playing === l.id} loading={loadingVoice === l.id} onListen={() => listen(l)} onView={() => setView(l.id)} onShare={() => sharePost(l.id, l.title)} />
                 </article>
               );
-            }))}
-            <div ref={sentinel} className="py-6 text-center text-xs text-muted-foreground">{online ? `Loading more for ${lvl} ${course}…` : "You're offline — these lessons are saved on your phone."}</div>
+            })}
+            <div ref={sentinel} className="py-6 text-center text-xs text-muted-foreground">{online ? (remainingToday() > 0 ? `Loading more for ${lvl} ${course}…` : "You've read today's new lessons — more arrive tomorrow. Try a quiz in any lesson.") : "You're offline — these lessons are saved on your phone."}</div>
           </>
         ) : (
           <>
@@ -368,13 +367,13 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
             </div>
           </div>
           <div className="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto overscroll-contain pb-12">
-            <Visual l={viewed} />
+            <Visual l={viewed} hideTitle />
             <div className="space-y-4 p-4">
               <Author faculty={profile.faculty} name={<><CourseName name={course} /> AI</>} meta={`${lvl} · ${viewed.courseTitle ?? viewed.tag}`} />
               <h1 className="font-display text-3xl font-bold leading-tight">{viewed.title}</h1>
               {viewed.hook && <p className="text-lg font-medium text-primary">{viewed.hook}</p>}
               {viewed.body.split(/\n+/).map((p) => <p key={p} className="text-[17px] leading-8 text-foreground/90">{p}</p>)}
-              <Actions playing={playing === viewed.id} loading={loadingVoice === viewed.id} onListen={() => listen(viewed)} onView={() => document.getElementById("trick")?.scrollIntoView({ behavior: "smooth" })} onShare={() => sharePost(viewed.id, viewed.title)} />
+              <Actions playing={playing === viewed.id} loading={loadingVoice === viewed.id} onListen={() => listen(viewed)} viewLabel="Quiz" onView={() => setQuiz(viewed)} onShare={() => sharePost(viewed.id, viewed.title)} />
               {!!viewed.steps?.length && (
                 <div className="card-solid rounded-3xl p-5">
                   <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-primary"><GraduationCap className="h-4 w-4" /> Step by step</p>
@@ -404,6 +403,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
                 </ul>
                 <p className="mt-4 text-sm text-muted-foreground">Close your eyes, say the trick out loud, then recall the 3 points. That's it — it sticks.</p>
               </div>
+              <button onClick={() => setQuiz(viewed)} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-gold/40 bg-gold/10 py-3 font-semibold text-gold"><Brain className="h-4 w-4" /> Test yourself — practice quiz</button>
               <button onClick={() => { closeView(); setOrb(true); }} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 font-semibold text-primary-foreground"><Mic className="h-4 w-4" /> Still confused? Ask Nexus</button>
             </div>
           </div>
@@ -430,7 +430,9 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
         </div>
       )}
 
-      {switcher && <Switcher profile={profile} onClose={() => setSwitcher(false)} onExit={onExit} onSave={(p) => { setSwitcher(false); setRounds(1); window.scrollTo({ top: 0 }); onSwitch(p); toast.success(`Switched to ${p.level.replace(" Level", "L")} · ${courseName(p.course)}`); }} />}
+      {quiz && <Quiz lesson={quiz} level={profile.level} onClose={() => setQuiz(null)} />}
+
+      {switcher && <Switcher profile={profile} onClose={() => setSwitcher(false)} onExit={onExit} onSave={(p) => { setSwitcher(false); window.scrollTo({ top: 0 }); onSwitch(p); toast.success(`Switched to ${p.level.replace(" Level", "L")} · ${courseName(p.course)}`); }} />}
 
       {orb && <Nexus lessons={lessons} course={course} level={profile.level} faculty={profile.faculty}
         onClose={() => { stopVoice(); setOrb(false); }}
@@ -551,17 +553,19 @@ function Switcher({ profile, onClose, onSave, onExit }: { profile: Profile; onCl
 type Msg = { from: "ai" | "me"; text: string; fresh?: boolean };
 
 function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { lessons: Lesson[]; course: string; level: Level; faculty: string; onClose: () => void; onOpen: (id: string) => void; onNote: (n: string) => void }) {
-  const [msgs, setMsgs] = useState<Msg[]>([{ from: "ai", text: `Hey, I'm Nexus — your ${course} coursemate. Ask me anything, or tap the mic.` }]);
+  const [msgs, setMsgs] = useState<Msg[]>([{ from: "ai", text: `I'm Nexus, your ${course} coursemate. Ask me any topic and I'll explain it simply, or tap the mic.` }]);
   const [input, setInput] = useState("");
   const [state, setState] = useState<"idle" | "listening" | "thinking" | "voice" | "speaking">("idle");
   const rec = useRef<MediaRecorder | null>(null);
   const end = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { const el = box.current; if (!el) return; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 180)}px`; }, [input]);
   const chatKey = `nexus.chat.${course}`;
   useEffect(() => { try { const m = JSON.parse(localStorage.getItem(chatKey) || "null") as Msg[] | null; if (m?.length) setMsgs(m.map((x) => ({ ...x, fresh: false }))); } catch { /* ignore */ } }, [chatKey]);
   useEffect(() => { try { localStorage.setItem(chatKey, JSON.stringify(msgs.slice(-40).map(({ from, text }) => ({ from, text })))); } catch { /* ignore */ } }, [msgs, chatKey]);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs, state]);
   useEffect(() => () => { rec.current?.state === "recording" && rec.current.stop(); }, []);
-  const chips = [`Explain ${lessons[0]?.code ?? "my course"} simply`, "Open FUTES News", "Draft acceptance letter"];
+  const chips = [`Explain ${lessons[0]?.code ?? "my course"} simply`, "Give me 3 exam questions", "Explain it like I'm 12", "Open FUTES News"];
 
   // Local intents: 0 API calls, instant.
   const local = (t: string) => {
@@ -616,7 +620,9 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
         try {
           const { text } = await transcribe({ data: { audio: btoa(bin), mime: blob.type } });
           setState("idle");
-          if (text) void send(text); else toast("Didn't catch that — try again.");
+          // Show the words in the box first so the student can fix them before sending.
+          if (text) { setInput((v) => (v ? `${v} ${text}` : text)); setTimeout(() => box.current?.focus(), 50); }
+          else toast("Didn't catch that — try again.");
         } catch { setState("idle"); toast.error("Voice failed — check your connection."); }
       };
       rec.current = mr; mr.start(); setState("listening");
@@ -627,33 +633,114 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
   const label = { idle: "Tap the mic and talk", listening: "Listening… tap to send", thinking: "Thinking…", voice: "Preparing voice… please wait", speaking: "Speaking…" }[state];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/85 animate-fade" onClick={onClose}>
-      <div className="card-solid flex h-[78dvh] w-full max-w-xl flex-col rounded-t-[2rem] px-4 pb-[max(env(safe-area-inset-bottom),16px)] pt-3" onClick={(e) => e.stopPropagation()}>
-        <div className="relative flex h-[132px] shrink-0 flex-col items-center justify-center gap-1.5">
-          <div className={`transition-opacity duration-300 ${state === "idle" ? "opacity-90" : "opacity-100"}`}><NexusOrb size={80} /></div>
-          <p className="flex items-center gap-1 font-display text-base font-bold">Nexus <BadgeCheck className="h-4 w-4 fill-primary text-primary-foreground" /><span className="ml-1 font-sans text-xs font-normal text-muted-foreground">· {label}</span></p>
-          <button onClick={onClose} aria-label="Close" className="absolute right-0 top-0 grid h-9 w-9 place-items-center rounded-full hover:bg-secondary"><X className="h-5 w-5" /></button>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 backdrop-blur-sm animate-fade sm:items-center sm:p-4" onClick={onClose}>
+      <div className="card-solid flex h-[88dvh] w-full max-w-2xl flex-col rounded-t-[2rem] sm:h-[86dvh] sm:rounded-[2rem]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border px-4">
+          <NexusOrb size={38} />
+          <div className="min-w-0 flex-1 leading-tight">
+            <p className="flex items-center gap-1 font-display font-bold">Nexus <BadgeCheck className="h-4 w-4 fill-primary text-primary-foreground" /></p>
+            <p className={`truncate text-xs ${state === "idle" ? "text-muted-foreground" : "busy-glow text-primary"}`}>{label}</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="grid h-10 w-10 place-items-center rounded-full hover:bg-secondary"><X className="h-5 w-5" /></button>
         </div>
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain py-2">
-          {msgs.map((m, i) => (
-            <div key={i} className={`flex items-end gap-2 ${m.from === "me" ? "justify-end" : ""}`}>
-              {m.from === "ai" && <Avatar faculty={faculty} size={26} />}
-              <p className={`max-w-[82%] rounded-2xl px-3.5 py-2 text-[15px] leading-relaxed ${m.from === "ai" ? "bg-secondary" : "bg-primary text-primary-foreground"}`}>{m.from === "ai" && m.fresh !== false ? m.text.split(" ").map((w, j) => <span key={j} className="word-up" style={{ animationDelay: `${Math.min(j * 35, 2500)}ms` }}>{w}&nbsp;</span>) : m.text}</p>
-            </div>
-          ))}
-          {(state === "thinking" || state === "voice") && <p className="busy-glow ml-9 flex w-fit items-center gap-2 rounded-2xl bg-primary/15 px-3.5 py-2 text-sm text-primary"><Loader2 className="h-4 w-4 animate-spin" />{state === "voice" ? "Preparing voice…" : "Nexus is thinking…"}</p>}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+          <div className="space-y-5">
+            {msgs.map((m, i) => m.from === "me" ? (
+              <div key={i} className="flex justify-end"><p className="max-w-[85%] whitespace-pre-wrap rounded-3xl bg-primary px-4 py-2.5 text-[16px] leading-relaxed text-primary-foreground">{m.text}</p></div>
+            ) : (
+              <div key={i} className="flex gap-3">
+                <Avatar faculty={faculty} size={30} />
+                <div className="min-w-0 flex-1 whitespace-pre-wrap pt-1 text-[16px] leading-[1.75] text-foreground/95">
+                  {m.fresh !== false ? m.text.split(" ").map((w, j) => <span key={j} className="word-up" style={{ animationDelay: `${Math.min(j * 28, 2400)}ms` }}>{w} </span>) : m.text}
+                </div>
+              </div>
+            ))}
+            {(state === "thinking" || state === "voice") && (
+              <div className="flex items-center gap-3"><Avatar faculty={faculty} size={30} /><span className="typing-dots" aria-label="Nexus is typing"><i /><i /><i /></span><span className="text-xs text-muted-foreground">{state === "voice" ? "Preparing voice…" : "Thinking…"}</span></div>
+            )}
+          </div>
           <div ref={end} />
         </div>
-        <div className="mb-2 flex shrink-0 gap-2 overflow-x-auto">
-          {chips.map((c) => <button key={c} onClick={() => send(c)} className="shrink-0 rounded-full border border-border px-3 py-1.5 text-xs hover:bg-secondary">{c}</button>)}
+        <div className="shrink-0 px-3 pb-[max(env(safe-area-inset-bottom),12px)] pt-2">
+          <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
+            {chips.map((c) => <button key={c} onClick={() => send(c)} className="shrink-0 rounded-full border border-border bg-secondary/40 px-3 py-1.5 text-xs hover:bg-secondary">{c}</button>)}
+          </div>
+          <form onSubmit={(e) => { e.preventDefault(); void send(input); }} className="rounded-3xl border border-border bg-input/40 p-2 focus-within:border-primary/60">
+            <textarea ref={box} value={input} rows={2} onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && window.matchMedia("(pointer: fine)").matches) { e.preventDefault(); void send(input); } }}
+              placeholder={state === "listening" ? "Listening… tap stop when done" : "Ask Nexus anything about your course…"}
+              className="block max-h-[180px] min-h-[52px] w-full resize-none bg-transparent px-2 py-1.5 text-[16px] leading-relaxed outline-none" />
+            <div className="mt-1 flex items-center justify-between">
+              <button type="button" onClick={mic} aria-label={state === "listening" ? "Stop recording" : "Talk"} className={`flex h-10 items-center gap-2 rounded-full px-3 text-sm font-medium ${state === "listening" ? "animate-pulse bg-destructive text-destructive-foreground" : "bg-secondary hover:bg-secondary/70"}`}>
+                {state === "listening" ? <><Square className="h-4 w-4" /> Stop</> : <><Mic className="h-4 w-4" /> Speak</>}
+              </button>
+              <button type="submit" disabled={!input.trim() || state === "thinking"} aria-label="Send" className="grid h-10 w-10 place-items-center rounded-full bg-primary text-primary-foreground disabled:opacity-40"><Send className="h-4 w-4" /></button>
+            </div>
+          </form>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); void send(input); }} className="flex shrink-0 items-center gap-2 rounded-2xl border border-border bg-input/40 p-1.5">
-          <button type="button" onClick={mic} aria-label={state === "listening" ? "Stop recording" : "Talk"} className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${state === "listening" ? "animate-pulse bg-destructive text-destructive-foreground" : "bg-secondary"}`}>
-            {state === "listening" ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-          </button>
-          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask Nexus…" className="min-w-0 flex-1 bg-transparent px-1 text-[16px] outline-none" />
-          <button type="submit" aria-label="Send" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground"><Send className="h-4 w-4" /></button>
-        </form>
+      </div>
+    </div>
+  );
+}
+
+function Quiz({ lesson, level, onClose }: { lesson: Lesson; level: Level; onClose: () => void }) {
+  const [diff, setDiff] = useState<"easy" | "medium" | "hard" | null>(null);
+  const [qs, setQs] = useState<QuizQ[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [i, setI] = useState(0);
+  const [pick, setPick] = useState<number | null>(null);
+  const [score, setScore] = useState(0);
+  const start = async (d: "easy" | "medium" | "hard") => {
+    setDiff(d); setQs(null); setErr(null); setI(0); setPick(null); setScore(0);
+    if (!navigator.onLine) { setErr("You're offline. Quizzes need internet — your lesson is still saved."); return; }
+    try {
+      const r = await makeQuiz({ data: { title: lesson.title, code: lesson.code, body: `${lesson.body}\nTrick: ${lesson.trick}\nTrap: ${lesson.trap}`, level, difficulty: d } });
+      if (r.questions.length) setQs(r.questions);
+      else setErr(r.error === "busy" ? "Many students are practising now. Try again in a few seconds." : r.error === "credits" ? "Quiz maker is resting for today. Try again later." : "Couldn't build this quiz. Tap a level to try again.");
+    } catch { setErr("Connection dropped. Tap a level to try again."); }
+  };
+  const q = qs?.[i];
+  const done = qs && i >= qs.length;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-background/85 animate-fade sm:items-center sm:p-4" onClick={onClose}>
+      <div className="card-solid flex max-h-[90dvh] w-full max-w-lg flex-col rounded-t-[2rem] p-5 sm:rounded-[2rem]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0"><p className="text-xs font-bold uppercase tracking-widest text-gold">Practice quiz · {lesson.code}</p><p className="truncate font-display text-lg font-bold">{lesson.title}</p></div>
+          <button onClick={onClose} aria-label="Close" className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-secondary"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          {(["easy", "medium", "hard"] as const).map((d) => <button key={d} onClick={() => start(d)} className={`rounded-xl py-2.5 text-sm font-semibold capitalize ${diff === d ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>{d}</button>)}
+        </div>
+        <div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {!diff && <p className="text-sm text-muted-foreground">Pick a level. Nexus writes 4 fresh questions with explanations.</p>}
+          {diff && !qs && !err && <div className="flex items-center gap-3 py-6"><span className="typing-dots"><i /><i /><i /></span><span className="busy-glow text-sm text-primary">Writing your questions…</span></div>}
+          {err && <p className="rounded-2xl bg-warning/15 p-4 text-sm">{err}</p>}
+          {q && (
+            <div>
+              <p className="text-xs text-muted-foreground">Question {i + 1} of {qs.length}</p>
+              <p className="mt-1 text-[17px] font-semibold leading-snug">{q.q}</p>
+              <div className="mt-3 space-y-2">
+                {q.options.map((o, k) => {
+                  const state = pick === null ? "" : k === q.answer ? "border-emerald bg-emerald/15" : k === pick ? "border-destructive bg-destructive/15" : "opacity-60";
+                  return <button key={k} disabled={pick !== null} onClick={() => { setPick(k); if (k === q.answer) setScore((x) => x + 1); }} className={`w-full rounded-2xl border border-border px-4 py-3 text-left text-[15px] ${state}`}>{o}</button>;
+                })}
+              </div>
+              {pick !== null && (
+                <div className="mt-3 rounded-2xl bg-secondary/60 p-4 text-[15px] leading-relaxed">
+                  <p className="font-semibold">{pick === q.answer ? "Correct." : "Not quite."}</p><p className="mt-1">{q.why}</p>
+                  <button onClick={() => { setI(i + 1); setPick(null); }} className="mt-3 w-full rounded-xl bg-primary py-2.5 font-semibold text-primary-foreground">{i + 1 < qs.length ? "Next question" : "See score"}</button>
+                </div>
+              )}
+            </div>
+          )}
+          {done && (
+            <div className="py-4 text-center">
+              <p className="font-display text-4xl font-bold">{score}/{qs.length}</p>
+              <p className="mt-2 text-sm text-muted-foreground">{score === qs.length ? "Perfect. You own this topic." : score >= qs.length / 2 ? "Good. Read the exam trap once more and retry." : "Read the lesson again, then try Easy first."}</p>
+              <button onClick={() => diff && start(diff)} className="mt-4 rounded-xl bg-primary px-5 py-2.5 font-semibold text-primary-foreground">New questions</button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

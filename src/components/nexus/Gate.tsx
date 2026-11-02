@@ -32,7 +32,7 @@ export function Gate({ onEnter }: Props) {
     if (!ready) return;
     setLoading(true);
     const faculty = COURSES.find((c) => c.name === course)?.faculty ?? "";
-    setTimeout(() => onEnter({ level: level as Level, course, faculty }), 3200);
+    setTimeout(() => onEnter({ level: level as Level, course, faculty }), 1800);
   };
 
   const field = "flex w-full items-center gap-3 rounded-xl border border-border bg-input/40 px-3.5 py-3 text-left text-sm transition hover:border-primary/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -45,7 +45,7 @@ export function Gate({ onEnter }: Props) {
           <img src="/futes-crest.jpg" alt="FUTES crest" className="h-20 w-20 rounded-2xl object-cover ring-1 ring-border shadow-[var(--shadow-glow)]" />
           <h1 className="mt-4 font-display text-2xl font-bold tracking-tight">FUTES <span className="text-primary">Nexus</span></h1>
           <p className="mt-1 text-xs text-muted-foreground">Sign in with your level and course</p>
-          <p className="mt-3 font-display text-sm font-semibold">We built: <span className="animate-hue glow-text">Agentic AI · Automation</span></p>
+          <p className="mt-3 font-display text-base font-bold leading-snug">{"Turn your everyday study into understanding".split(" ").map((w, i) => <span key={i} className="word-glow" style={{ animationDelay: `${i * 0.35}s` }}>{w} </span>)}</p>
         </div>
 
         <div className="mt-6 space-y-3">
@@ -106,7 +106,7 @@ export function Gate({ onEnter }: Props) {
             disabled={!ready && !loading}
             className={`mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3.5 font-display text-sm font-semibold text-primary-foreground transition disabled:opacity-40 ${ready || loading ? "shadow-[var(--shadow-glow)] hover:brightness-110" : ""}`}
           >
-            {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Preparing your feed…</> : "Enter Nexus"}
+            {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Preparing your feed…</> : "Enter Nexus (Demo)"}
           </button>
         </div>
 
