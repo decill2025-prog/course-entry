@@ -231,3 +231,18 @@ html { scrollbar-gutter: stable; }
 .word-up { display: inline-block; animation: word-up .35s ease-out both; }
 @keyframes busy-glow { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
 .busy-glow { animation: busy-glow 1.2s ease-in-out infinite; }
+.nexus-header {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--color-graphite) 96%, transparent), color-mix(in oklab, var(--color-graphite) 88%, transparent));
+  border-bottom: 1px solid color-mix(in oklab, var(--color-primary) 22%, transparent);
+  box-shadow: 0 8px 24px -16px color-mix(in oklab, var(--color-primary) 60%, transparent);
+  contain: layout paint;
+  transform: translateZ(0);
+}
+.brand-gradient {
+  background: linear-gradient(90deg, var(--color-primary), oklch(0.78 0.15 230), var(--color-gold));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.typing-dots { display: inline-flex; gap: 5px; }
+.typing-dots i { width: 7px; height: 7px; border-radius: 9999px; background: var(--color-primary); animation: dot 1s ease-in-out infinite; }
+.typing-dots i:nth-child(2) { animation-delay: .15s } .typing-dots i:nth-child(3) { animation-delay: .3s }
+@keyframes dot { 0%,80%,100% { opacity: .3; transform: translateY(0) } 40% { opacity: 1; transform: translateY(-4px) } }
