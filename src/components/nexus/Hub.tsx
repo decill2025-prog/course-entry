@@ -262,12 +262,12 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
 
   return (
     <div className="min-h-dvh bg-canvas">
-      <header className="fixed inset-x-0 top-0 z-40 border-b border-primary/15 bg-graphite/95">
-        <div className="mx-auto flex h-[68px] max-w-xl items-center justify-between gap-2 px-4">
+      <header className="nexus-header fixed inset-x-0 top-0 z-40 h-[72px]">
+        <div className="mx-auto flex h-full max-w-xl items-center justify-between gap-2 px-4">
           <div className="flex min-w-0 items-center gap-3">
-            <img src="/futes-crest.jpg" alt="FUTES" className="h-11 w-11 rounded-xl object-cover ring-1 ring-primary/30" />
-            <div className="min-w-0 leading-tight">
-              <p className="font-display text-[17px] font-bold tracking-wide">FUTES <span className="text-primary">// NEXUS</span></p>
+            <img src="/futes-crest.jpg" alt="FUTES" width={44} height={44} className="h-11 w-11 shrink-0 rounded-2xl object-cover ring-2 ring-primary/40" />
+            <div className="min-w-0 leading-none">
+              <p className="whitespace-nowrap font-display text-[18px] font-extrabold tracking-[0.14em]"><span className="text-foreground">FUTES</span> <span className="brand-gradient">NEXUS</span></p>
               <button onClick={() => setSwitcher(true)} className="mt-0.5 flex max-w-full items-center gap-1 rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20">
                 <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${online ? "bg-emerald" : "bg-warning"}`} />
                 <span className="truncate">{lvl} · {course}</span>
@@ -280,10 +280,10 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
             <span className="absolute right-2.5 top-2.5 h-2.5 w-2.5 animate-pulse rounded-full bg-primary ring-2 ring-graphite" />
           </button>
         </div>
-        {!online && <div className="flex items-center justify-center gap-2 bg-warning py-1.5 text-xs font-medium text-graphite"><WifiOff className="h-3.5 w-3.5" /> You're offline — showing saved posts</div>}
+        {!online && <div className="absolute inset-x-0 top-full flex items-center justify-center gap-2 bg-warning py-1.5 text-xs font-medium text-graphite"><WifiOff className="h-3.5 w-3.5" /> You're offline — showing saved posts</div>}
       </header>
 
-      <main className="mx-auto max-w-xl space-y-4 px-3 pb-36 pt-[84px]">
+      <main className="mx-auto max-w-xl space-y-4 px-3 pb-40 pt-[88px]">
         {tab === "feed" ? (
           <>
             <article className="card-solid gold-ring overflow-hidden rounded-3xl">
@@ -310,13 +310,12 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
               </div>
             )}
 
-            {Array.from({ length: rounds }).flatMap((_, r) => all.map((l, i) => {
-              const n = r * all.length + i;
+            {all.map((l, n) => {
               const ai = l as Lesson & Partial<StoredPost>;
               return (
-                <article key={`${l.id}-${r}`} className="feed-card card-solid overflow-hidden rounded-3xl">
+                <article key={l.id} className="feed-card card-solid overflow-hidden rounded-3xl">
                   <div className="p-4 pb-3">
-                    <Author faculty={profile.faculty} name={<><CourseName name={course} /> AI</>} meta={`${r ? "Revision · " : ""}${ai.at ? timeAgo(ai.at) : `${n * 7 + 3}m`} · ${lvl} · ${l.code}`} />
+                    <Author faculty={profile.faculty} name={<><CourseName name={course} /> AI</>} meta={`${ai.at ? timeAgo(ai.at) : `${n * 7 + 3}m`} · ${lvl} · ${l.code}`} />
                     <h3 className="mt-3 font-display text-lg font-bold leading-snug">{l.title}</h3>
                     {ai.hook && <p className="mt-1 text-[15px] font-medium text-primary">{ai.hook}</p>}
                     <p className="mt-2 line-clamp-6 whitespace-pre-line text-[16px] leading-relaxed text-foreground/90">{l.body}</p>
@@ -326,8 +325,8 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
                   <Actions playing={playing === l.id} loading={loadingVoice === l.id} onListen={() => listen(l)} onView={() => setView(l.id)} onShare={() => sharePost(l.id, l.title)} />
                 </article>
               );
-            }))}
-            <div ref={sentinel} className="py-6 text-center text-xs text-muted-foreground">{online ? `Loading more for ${lvl} ${course}…` : "You're offline — these lessons are saved on your phone."}</div>
+            })}
+            <div ref={sentinel} className="py-6 text-center text-xs text-muted-foreground">{online ? (remainingToday() > 0 ? `Loading more for ${lvl} ${course}…` : "You've read today's new lessons — more arrive tomorrow. Try a quiz in any lesson.") : "You're offline — these lessons are saved on your phone."}</div>
           </>
         ) : (
           <>
@@ -368,13 +367,13 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
             </div>
           </div>
           <div className="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto overscroll-contain pb-12">
-            <Visual l={viewed} />
+            <Visual l={viewed} hideTitle />
             <div className="space-y-4 p-4">
               <Author faculty={profile.faculty} name={<><CourseName name={course} /> AI</>} meta={`${lvl} · ${viewed.courseTitle ?? viewed.tag}`} />
               <h1 className="font-display text-3xl font-bold leading-tight">{viewed.title}</h1>
               {viewed.hook && <p className="text-lg font-medium text-primary">{viewed.hook}</p>}
               {viewed.body.split(/\n+/).map((p) => <p key={p} className="text-[17px] leading-8 text-foreground/90">{p}</p>)}
-              <Actions playing={playing === viewed.id} loading={loadingVoice === viewed.id} onListen={() => listen(viewed)} onView={() => document.getElementById("trick")?.scrollIntoView({ behavior: "smooth" })} onShare={() => sharePost(viewed.id, viewed.title)} />
+              <Actions playing={playing === viewed.id} loading={loadingVoice === viewed.id} onListen={() => listen(viewed)} viewLabel="Quiz" onView={() => setQuiz(viewed)} onShare={() => sharePost(viewed.id, viewed.title)} />
               {!!viewed.steps?.length && (
                 <div className="card-solid rounded-3xl p-5">
                   <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-primary"><GraduationCap className="h-4 w-4" /> Step by step</p>
@@ -404,6 +403,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
                 </ul>
                 <p className="mt-4 text-sm text-muted-foreground">Close your eyes, say the trick out loud, then recall the 3 points. That's it — it sticks.</p>
               </div>
+              <button onClick={() => setQuiz(viewed)} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-gold/40 bg-gold/10 py-3 font-semibold text-gold"><Brain className="h-4 w-4" /> Test yourself — practice quiz</button>
               <button onClick={() => { closeView(); setOrb(true); }} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 font-semibold text-primary-foreground"><Mic className="h-4 w-4" /> Still confused? Ask Nexus</button>
             </div>
           </div>
@@ -430,7 +430,9 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
         </div>
       )}
 
-      {switcher && <Switcher profile={profile} onClose={() => setSwitcher(false)} onExit={onExit} onSave={(p) => { setSwitcher(false); setRounds(1); window.scrollTo({ top: 0 }); onSwitch(p); toast.success(`Switched to ${p.level.replace(" Level", "L")} · ${courseName(p.course)}`); }} />}
+      {quiz && <Quiz lesson={quiz} level={profile.level} onClose={() => setQuiz(null)} />}
+
+      {switcher && <Switcher profile={profile} onClose={() => setSwitcher(false)} onExit={onExit} onSave={(p) => { setSwitcher(false); window.scrollTo({ top: 0 }); onSwitch(p); toast.success(`Switched to ${p.level.replace(" Level", "L")} · ${courseName(p.course)}`); }} />}
 
       {orb && <Nexus lessons={lessons} course={course} level={profile.level} faculty={profile.faculty}
         onClose={() => { stopVoice(); setOrb(false); }}
