@@ -19,6 +19,12 @@ export function cleanText(t: string): string {
     .trim();
 }
 
+/** True for plain greetings like "hi", "hello", "good morning", "how far". */
+export function isGreeting(q: string): boolean {
+  const s = q.toLowerCase().replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
+  return /^(hi+|hey+|hello+|helo|yo|sup|how far|howdy|good (morning|afternoon|evening|day)|hi nexus|hello nexus|hey nexus)( nexus| there| bro| guy)?$/.test(s);
+}
+
 type Turn = { role: "user" | "assistant"; content: string };
 type ChatMsg = { role: "system" | "user" | "assistant"; content: string };
 
@@ -82,7 +88,13 @@ export const askJarvis = createServerFn({ method: "POST" })
     })),
   }))
   .handler(async ({ data }) => {
-    const system = `You are Nexus, a warm senior coursemate at FUTES (Federal University of Technology and Environmental Sciences), Iyin-Ekiti, Nigeria. The student is ${data.level}, studying ${data.course}. Your answers are read on screen AND spoken aloud, so write the way a clear teacher talks. Rules: short sentences of under 15 words. Start with one everyday Nigerian picture (danfo, suya, NEPA light, market, hostel). Then give the plain rule in one or two sentences. Then one vivid memory hook that is funny or visual, never a weird acronym. End with the one exam mistake to avoid. Under 110 words. Plain text only: no asterisks, no hashtags, no bullet symbols, no emojis. Explain any technical word the moment you use it.`;
+    if (isGreeting(data.question)) {
+      return { text: `Hi! I'm Nexus, your ${data.course} coursemate at FUTES. What topic should we make easy today?`, error: null };
+    }
+    const system = `You are Nexus, a warm senior coursemate at FUTES (Federal University of Technology and Environmental Sciences), Iyin-Ekiti, Nigeria. The student is ${data.level}, studying ${data.course}. Your answers are read on screen AND spoken aloud, so write the way a clear teacher talks.
+First, answer exactly what the student said. If it is small talk, a thank-you or a question about you, reply naturally in one or two friendly sentences and ask what topic they want help with. Never start a lesson they did not ask for.
+When they ask about a topic: short sentences under 15 words. Start with one everyday Nigerian picture (danfo, suya, NEPA light, market, hostel). Give the plain rule in one or two sentences. Add one vivid memory hook, never a forced acronym. End with the one exam mistake to avoid. Under 110 words.
+Always plain text: no asterisks, hashtags, bullet symbols or emojis. Explain any technical word the moment you use it.`;
     const text = await chat(groqKeys(), process.env["CLEANAPIS_API_KEY"], [{ role: "system", content: system }, ...data.history, { role: "user", content: data.question }]);
     const clean = text ? cleanText(text) : null;
     return { text: clean, error: clean ? null : "busy" };
@@ -106,7 +118,7 @@ export const generatePost = createServerFn({ method: "POST" })
   }))
   .handler(async ({ data }) => {
     const none = { post: null as AIPost | null, id: null as string | null };
-    const system = `You write lesson posts for FUTES Nexus, a study feed for Nigerian university students, following the NUC CCMAS scheme of work. The reader is a ${data.level} ${data.course} student who finds this topic hard. Stay strictly on the given course code and topic.
+    const system = `You write lesson posts for FUTES Nexus, a study feed for Nigerian university students, following the NUC CCMAS scheme of work. The reader is a ${data.level} ${data.course} student who finds this topic hard. Stay strictly on the given course code and topic, but frame every picture, example and use-case around what a ${data.course} student will actually do in that career, so students of other departments taking the same course get a different angle.
 ${POST_RULES}
 Reply ONLY with JSON: {"title": catchy title max 8 words, "hook": one sentence on why this matters in real life, "body": 150-220 words in 3 short paragraphs separated by \n\n (picture, plain rule, why it works), "steps": 3-5 short steps, "example": one worked example max 70 words, "trick": the memory hook, "trap": the exam mistake and the fix, "points": exactly 3 key points max 8 words each, "say": a 40-60 word spoken summary a friend would say out loud (picture, rule, hook)}.`;
     const raw = await chat(groqKeys(), process.env["CLEANAPIS_API_KEY"], [
@@ -202,47 +214,57 @@ export const makeQuiz = createServerFn({ method: "POST" })
     }
   });
 
-/** Speech-to-text: Groq whisper-large-v3-turbo with key rotation. */
+/** Phrases speech engines invent from silence; never sent to the chat box. */
+export function isGhostTranscript(t: string): boolean {
+  const s = t.toLowerCase().replace(/[^a-z ]/g, "").trim();
+  return !s || /^(thank you|thanks|thank you for watching|bye|you|uh|um|hmm)( so much)?$/.test(s);
+}
+
+/** Speech-to-text: Deepgram Nova-3, then Nova-2. Never Groq. */
 export const transcribe = createServerFn({ method: "POST" })
   .inputValidator((d: { audio: string; mime: string }) => ({ audio: String(d.audio ?? ""), mime: String(d.mime ?? "audio/webm") }))
   .handler(async ({ data }) => {
-    if (!data.audio) return { text: null as string | null };
+    const dg = process.env["DEEPGRAM_API_KEY"];
+    if (!data.audio || !dg) return { text: null as string | null };
     const bin = atob(data.audio);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const ext = data.mime.includes("mp4") ? "mp4" : data.mime.includes("ogg") ? "ogg" : "webm";
-    for (const key of groqKeys()) {
+    if (bytes.length < 2000) return { text: null as string | null }; // too short to be speech
+    for (const model of ["nova-3", "nova-2"]) {
       try {
-        const form = new FormData();
-        form.append("file", new Blob([bytes], { type: data.mime }), `speech.${ext}`);
-        form.append("model", "whisper-large-v3-turbo");
-        form.append("language", "en");
-        const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${key}` }, body: form });
-        if (!res.ok) { console.error("groq stt", res.status); continue; }
-        const j = (await res.json()) as { text?: string };
-        return { text: (j.text ?? "").trim() || null };
-      } catch (e) { console.error(e); }
+        const res = await fetch(`https://api.deepgram.com/v1/listen?model=${model}&language=en&smart_format=true&punctuate=true`, {
+          method: "POST", signal: AbortSignal.timeout(10000),
+          headers: { Authorization: `Token ${dg}`, "Content-Type": data.mime.split(";")[0] || "audio/webm" },
+          body: bytes,
+        });
+        if (!res.ok) { console.error("deepgram stt", model, res.status); continue; }
+        const j = (await res.json()) as { results?: { channels?: { alternatives?: { transcript?: string }[] }[] } };
+        const t = (j.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? "").trim();
+        return { text: isGhostTranscript(t) ? null : t };
+      } catch (e) { console.error("deepgram stt err", e); }
     }
     return { text: null as string | null };
   });
 
-/** Text-to-speech: Deepgram Aura-2 first (fastest), Microsoft neural voice as backup. Never Groq. */
+/** Text-to-speech: Deepgram Aura-2 → second Deepgram voice → Microsoft neural. Never Groq, never browser. */
 export const speak = createServerFn({ method: "POST" })
-  .inputValidator((d: { text: string }) => ({ text: cleanText(String(d.text ?? "")).slice(0, 1200) }))
+  .inputValidator((d: { text: string }) => ({ text: cleanText(String(d.text ?? "")).slice(0, 900) }))
   .handler(async ({ data }) => {
     const none = { audio: null as string | null, mime: "audio/mpeg" };
     if (!data.text) return none;
     const dg = process.env["DEEPGRAM_API_KEY"];
     if (dg) {
-      try {
-        const res = await fetch("https://api.deepgram.com/v1/speak?model=aura-2-thalia-en&encoding=mp3", {
-          method: "POST", signal: AbortSignal.timeout(7000),
-          headers: { Authorization: `Token ${dg}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ text: data.text }),
-        });
-        if (res.ok) return { audio: toB64(await res.arrayBuffer()), mime: "audio/mpeg" };
-        console.error("deepgram", res.status);
-      } catch (e) { console.error("deepgram err", e); }
+      for (const model of ["aura-2-thalia-en", "aura-2-andromeda-en", "aura-asteria-en"]) {
+        try {
+          const res = await fetch(`https://api.deepgram.com/v1/speak?model=${model}&encoding=mp3`, {
+            method: "POST", signal: AbortSignal.timeout(6000),
+            headers: { Authorization: `Token ${dg}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ text: data.text }),
+          });
+          if (res.ok) return { audio: toB64(await res.arrayBuffer()), mime: "audio/mpeg" };
+          console.error("deepgram", model, res.status);
+        } catch (e) { console.error("deepgram err", model, e); }
+      }
     }
     try {
       const { EdgeTTS } = await import("edge-tts-universal");

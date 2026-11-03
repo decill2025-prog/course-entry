@@ -32,13 +32,13 @@ describe("scheme of work", () => {
     expect(schemeFor("100 Level", "B.Sc. Computer Science", "Computing & Cyber Systems").some((c) => /\s2\d\d$/.test(c.code))).toBe(false));
 });
 describe("daily AI budget", () => {
-  it("caps a device at 15 posts a day", () => {
+  it("caps a device at 20 posts a day", () => {
     localStorage.clear();
     const d = new Date("2026-10-19T10:00:00Z");
-    expect(DAILY_CAP).toBe(15);
-    for (let i = 0; i < 15; i++) spendOne(d);
+    expect(DAILY_CAP).toBe(20);
+    for (let i = 0; i < 20; i++) spendOne(d);
     expect(remainingToday(d)).toBe(0);
-    expect(remainingToday(new Date("2026-10-20T10:00:00Z"))).toBe(15);
+    expect(remainingToday(new Date("2026-10-20T10:00:00Z"))).toBe(20);
   });
 });
 

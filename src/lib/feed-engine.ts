@@ -6,7 +6,7 @@ import { topicsFor } from "@/lib/scheme";
 
 export type StoredPost = Lesson & { ai: true; hook: string; steps: string[]; example: string; at: number; courseTitle: string; say?: string | undefined };
 
-export const DAILY_CAP = 15; // posts generated per device per day (5 Groq keys ≈ 5,000/day shared by everyone)
+export const DAILY_CAP = 20; // posts generated per device per day (5 Groq keys ≈ 5,000/day shared by everyone)
 export const SESSION_BATCH = 3;
 
 const key = (level: Level, course: string) => `nexus.posts.v2.${level}.${course}`;

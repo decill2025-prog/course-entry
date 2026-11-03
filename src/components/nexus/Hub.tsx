@@ -25,7 +25,7 @@ const NEWS = {
   ],
 };
 
-/** One shared player. Server voice (Groq → Microsoft → Deepgram) online; KittenTTS on-device offline. */
+/** One shared player. Server voice (Deepgram Aura-2 → Deepgram backup → Microsoft) online; KittenTTS on-device offline. */
 let player: HTMLAudioElement | null = null;
 async function playVoice(text: string, onEnd?: () => void): Promise<boolean> {
   stopVoice();
@@ -148,6 +148,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
   const [voiceOffline, setVoiceOffline] = useState(false);
   const busy = useRef(false);
   const sentinel = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLElement>(null);
   const course = courseName(profile.course);
   const lvl = profile.level.replace(" Level", "L");
   const lessons = useMemo(() => lessonsFor(profile.level, profile.faculty), [profile.level, profile.faculty]);
@@ -173,17 +174,18 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
       const t = setTimeout(() => { void warmKitten().then(setVoiceOffline); }, 6000);
       window.addEventListener("beforeunload", () => clearTimeout(t));
     }
-    let last = window.scrollY, ticking = false;
+    const sc = scroller.current;
+    let last = sc?.scrollTop ?? 0, ticking = false;
     const onScroll = () => {
       if (ticking) return; ticking = true;
       requestAnimationFrame(() => {
-        const y = window.scrollY;
+        const y = sc?.scrollTop ?? 0;
         if (Math.abs(y - last) > 10) { setHidden(y > last && y > 140); last = y; }
         ticking = false;
       });
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); window.removeEventListener("scroll", onScroll); stopVoice(); };
+    sc?.addEventListener("scroll", onScroll, { passive: true });
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); sc?.removeEventListener("scroll", onScroll); stopVoice(); };
   }, []);
 
   // AI feed: load saved posts for this course, then write new ones one at a time (gentle on rate limits).
@@ -258,11 +260,12 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
 
   const viewed = (all.find((p) => p.id === view) ?? (extra?.id === view ? extra : undefined)) as (Lesson & Partial<StoredPost>) | undefined;
   const closeView = () => { setView(null); history.replaceState(null, "", "/"); };
-  const go = (t: "feed" | "vault") => { setTab(t); window.scrollTo({ top: 0 }); setHidden(false); };
+  const go = (t: "feed" | "vault") => { setTab(t); scroller.current?.scrollTo({ top: 0 }); setHidden(false); };
 
   return (
-    <div className="min-h-dvh bg-canvas">
-      <header className="nexus-header fixed inset-x-0 top-0 z-40 h-[72px]">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-canvas">
+      {/* Locked header: lives outside the scroll area, so mobile address-bar collapse can never move it. */}
+      <header className="nexus-header relative z-40 h-[72px] shrink-0">
         <div className="mx-auto flex h-full max-w-xl items-center justify-between gap-2 px-4">
           <div className="flex min-w-0 items-center gap-3">
             <img src="/futes-crest.jpg" alt="FUTES" width={44} height={44} className="h-11 w-11 shrink-0 rounded-2xl object-cover ring-2 ring-primary/40" />
@@ -283,7 +286,8 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
         {!online && <div className="absolute inset-x-0 top-full flex items-center justify-center gap-2 bg-warning py-1.5 text-xs font-medium text-graphite"><WifiOff className="h-3.5 w-3.5" /> You're offline — showing saved posts</div>}
       </header>
 
-      <main className="mx-auto max-w-xl space-y-4 px-3 pb-40 pt-[88px]">
+      <main ref={scroller} className="min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
+        <div className="mx-auto max-w-xl space-y-4 px-3 pb-40 pt-4">
         {tab === "feed" ? (
           <>
             <article className="card-solid gold-ring overflow-hidden rounded-3xl">
@@ -326,7 +330,21 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
                 </article>
               );
             })}
-            <div ref={sentinel} className="py-6 text-center text-xs text-muted-foreground">{online ? (remainingToday() > 0 ? `Loading more for ${lvl} ${course}…` : "You've read today's new lessons — more arrive tomorrow. Try a quiz in any lesson.") : "You're offline — these lessons are saved on your phone."}</div>
+            {online && remainingToday() === 0 ? (
+              <div ref={sentinel} className="caught-up rounded-3xl p-[2px]">
+                <div className="rounded-[calc(1.5rem-2px)] bg-graphite px-5 py-7 text-center">
+                  <Sparkles className="mx-auto h-8 w-8 text-gold" />
+                  <p className="text-shimmer mt-3 font-display text-2xl font-extrabold">You're all caught up for today</p>
+                  <p className="mt-2 text-[15px] text-foreground/85">Come back tomorrow for 20 fresh {course} lessons from your scheme of work.</p>
+                  <div className="mt-5 grid grid-cols-2 gap-2">
+                    <button onClick={() => all[0] && setView(all[0].id)} className="rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground">Revise a lesson</button>
+                    <button onClick={() => go("vault")} className="rounded-xl bg-secondary py-2.5 text-sm font-semibold">Study Vault</button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div ref={sentinel} className="py-6 text-center text-xs text-muted-foreground">{online ? `Loading more for ${lvl} ${course}…` : "You're offline — these lessons are saved on your phone."}</div>
+            )}
           </>
         ) : (
           <>
@@ -338,6 +356,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
           <Vault lessons={all} course={course} lvl={lvl} faculty={profile.faculty} onOpen={setView} onAsk={() => setOrb(true)} />
           </>
         )}
+        </div>
       </main>
 
       {/* Bottom dock — slides away on scroll down; orb shrinks in place (transform only, no layout jumps) */}
@@ -432,7 +451,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
 
       {quiz && <Quiz lesson={quiz} level={profile.level} onClose={() => setQuiz(null)} />}
 
-      {switcher && <Switcher profile={profile} onClose={() => setSwitcher(false)} onExit={onExit} onSave={(p) => { setSwitcher(false); window.scrollTo({ top: 0 }); onSwitch(p); toast.success(`Switched to ${p.level.replace(" Level", "L")} · ${courseName(p.course)}`); }} />}
+      {switcher && <Switcher profile={profile} onClose={() => setSwitcher(false)} onExit={onExit} onSave={(p) => { setSwitcher(false); scroller.current?.scrollTo({ top: 0 }); onSwitch(p); toast.success(`Switched to ${p.level.replace(" Level", "L")} · ${courseName(p.course)}`); }} />}
 
       {orb && <Nexus lessons={lessons} course={course} level={profile.level} faculty={profile.faculty}
         onClose={() => { stopVoice(); setOrb(false); }}
