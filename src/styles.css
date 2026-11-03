@@ -248,3 +248,12 @@ html { scrollbar-gutter: stable; }
 @keyframes dot { 0%,80%,100% { opacity: .3; transform: translateY(0) } 40% { opacity: 1; transform: translateY(-4px) } }
 @keyframes word-glow { 0% { color: oklch(0.8 0.15 220) } 25% { color: oklch(0.82 0.16 300) } 50% { color: oklch(0.85 0.15 80) } 75% { color: oklch(0.8 0.16 160) } 100% { color: oklch(0.8 0.15 220) } }
 .word-glow { animation: word-glow 6s linear infinite; text-shadow: 0 0 12px color-mix(in oklab, currentColor 45%, transparent); }
+
+/* Glowing "come back tomorrow" card: animated sapphire→gold border (transform-free, cheap). */
+.caught-up {
+  background: linear-gradient(120deg, oklch(0.62 0.2 258), oklch(0.82 0.15 85), oklch(0.7 0.18 200), oklch(0.62 0.2 258));
+  background-size: 300% 300%;
+  animation: caught-glow 6s linear infinite;
+  box-shadow: 0 0 28px oklch(0.62 0.2 258 / 0.45);
+}
+@keyframes caught-glow { to { background-position: 300% 0 } }
