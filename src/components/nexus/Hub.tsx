@@ -25,7 +25,7 @@ const NEWS = {
   ],
 };
 
-/** One shared player. Server voice (Groq → Microsoft → Deepgram) online; KittenTTS on-device offline. */
+/** One shared player. Server voice (Deepgram Aura-2 → Deepgram backup → Microsoft) online; KittenTTS on-device offline. */
 let player: HTMLAudioElement | null = null;
 async function playVoice(text: string, onEnd?: () => void): Promise<boolean> {
   stopVoice();
