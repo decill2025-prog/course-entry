@@ -293,7 +293,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
             <article className="card-solid gold-ring overflow-hidden rounded-3xl">
               <div className="p-4">
                 <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-gold"><Pin className="h-3.5 w-3.5" /> Pinned · Student guide</div>
-                <Author gold name="FUTES News" meta="Student guide · 2026/2027" />
+                <Author gold name="Nexus News" meta="Student guide · 2026/2027" />
                 <h2 className="mt-3 font-display text-xl font-bold">{NEWS.title}</h2>
                 <p className="mt-1.5 text-[16px] leading-relaxed text-foreground/90">{NEWS.short}</p>
               </div>
@@ -434,12 +434,12 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
           <div className="shrink-0 border-b border-border bg-graphite">
             <div className="mx-auto flex max-w-xl items-center gap-2 px-3 py-3">
               <button onClick={() => { setNews(false); history.replaceState(null, "", "/"); }} className="grid h-10 w-10 place-items-center rounded-full hover:bg-secondary" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
-              <span className="font-display font-semibold">FUTES News</span>
+              <span className="font-display font-semibold">Nexus News</span>
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <div className="mx-auto max-w-xl space-y-4 p-4 pb-12">
-              <Author gold name="FUTES News" meta="Student guide · 2026/2027" />
+              <Author gold name="Nexus News" meta="Student guide · 2026/2027" />
               <h1 className="font-display text-3xl font-bold leading-tight">{NEWS.title}</h1>
               <img src="/futes-crest.jpg" alt="FUTES crest" className="aspect-[16/9] w-full rounded-3xl object-cover" />
               {NEWS.full.map((p) => <p key={p} className="text-[17px] leading-8 text-foreground/90">{p}</p>)}
@@ -464,7 +464,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
             <p className="font-display text-lg font-bold">Notifications</p>
             <div className="mt-3 space-y-2 text-sm">
               {notes.map((n, i) => <p key={i} className="rounded-2xl bg-secondary/60 p-3">{n}</p>)}
-              <p className="rounded-2xl bg-secondary/60 p-3">FUTES News pinned the 2026/2027 registration guide.</p>
+              <p className="rounded-2xl bg-secondary/60 p-3">Nexus News pinned the 2026/2027 registration guide.</p>
             </div>
           </div>
         </div>
@@ -584,13 +584,13 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
   useEffect(() => { try { localStorage.setItem(chatKey, JSON.stringify(msgs.slice(-40).map(({ from, text }) => ({ from, text })))); } catch { /* ignore */ } }, [msgs, chatKey]);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs, state]);
   useEffect(() => () => { rec.current?.state === "recording" && rec.current.stop(); }, []);
-  const chips = [`Explain ${lessons[0]?.code ?? "my course"} simply`, "Give me 3 exam questions", "Explain it like I'm 12", "Open FUTES News"];
+  const chips = [`Explain ${lessons[0]?.code ?? "my course"} simply`, "Give me 3 exam questions", "Explain it like I'm 12", "Open Nexus News"];
 
   // Local intents: 0 API calls, instant.
   const local = (t: string) => {
     const post = lessons.find((p) => t.includes(p.code.toLowerCase()) && /open|show|go/.test(t));
     if (post) return { text: `Roger. Opening ${post.code}.`, act: () => onOpen(post.id) };
-    if (/news|fresher|registration/.test(t)) return { text: "Roger. Opening FUTES News.", act: () => onOpen("news") };
+    if (/news|fresher|registration/.test(t)) return { text: "Roger. Opening Nexus News.", act: () => onOpen("news") };
     if (/vault|timetable|scheme/.test(t)) return { text: "Roger. Study Vault.", act: () => onOpen("vault") };
     if (/draft|letter|document/.test(t)) return { text: "Done. It's in your notifications.", act: () => onNote(`📄 Draft ready: "Letter of Acceptance — ${course}".`) };
     return null;
