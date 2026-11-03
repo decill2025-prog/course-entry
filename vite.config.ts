@@ -21,6 +21,8 @@ export default defineConfig({
         manifest: false,
         workbox: {
           // SSR app: no static index.html, so the visited "/" page is cached at runtime and served on offline reloads.
+          // Precache the SSR "/" shell at install (new revision each build) so any offline reload opens Nexus.
+          additionalManifestEntries: [{ url: "/", revision: String(Date.now()) }],
           navigateFallback: "/",
           navigateFallbackDenylist: [/^\/~oauth/, /^\/_serverFn/, /^\/api\//],
           clientsClaim: true,
