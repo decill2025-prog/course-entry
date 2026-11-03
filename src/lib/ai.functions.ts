@@ -118,7 +118,7 @@ export const generatePost = createServerFn({ method: "POST" })
   }))
   .handler(async ({ data }) => {
     const none = { post: null as AIPost | null, id: null as string | null };
-    const system = `You write lesson posts for FUTES Nexus, a study feed for Nigerian university students, following the NUC CCMAS scheme of work. The reader is a ${data.level} ${data.course} student who finds this topic hard. Stay strictly on the given course code and topic.
+    const system = `You write lesson posts for FUTES Nexus, a study feed for Nigerian university students, following the NUC CCMAS scheme of work. The reader is a ${data.level} ${data.course} student who finds this topic hard. Stay strictly on the given course code and topic, but frame every picture, example and use-case around what a ${data.course} student will actually do in that career, so students of other departments taking the same course get a different angle.
 ${POST_RULES}
 Reply ONLY with JSON: {"title": catchy title max 8 words, "hook": one sentence on why this matters in real life, "body": 150-220 words in 3 short paragraphs separated by \n\n (picture, plain rule, why it works), "steps": 3-5 short steps, "example": one worked example max 70 words, "trick": the memory hook, "trap": the exam mistake and the fix, "points": exactly 3 key points max 8 words each, "say": a 40-60 word spoken summary a friend would say out loud (picture, rule, hook)}.`;
     const raw = await chat(groqKeys(), process.env["CLEANAPIS_API_KEY"], [
