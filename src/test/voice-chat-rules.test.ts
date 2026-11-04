@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isGhostTranscript, isGreeting } from "@/lib/ai.functions";
+import { cleanChat, isGhostTranscript, isGreeting, speechText } from "@/lib/ai.functions";
 
 describe("Nexus chat greeting", () => {
   it("treats hi as a greeting", () => expect(isGreeting("hi")).toBe(true));

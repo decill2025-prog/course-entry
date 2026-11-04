@@ -19,6 +19,16 @@ export function cleanText(t: string): string {
     .trim();
 }
 
+/** Cleans chat text for the screen but keeps fenced code blocks intact so tech students can copy them. */
+export function cleanChat(t: string): string {
+  return t.split(/(```[\s\S]*?```)/g).map((p) => (p.startsWith("```") ? p : cleanText(p))).join("").trim();
+}
+
+/** What the voice should read: code becomes a short pointer, never raw code. */
+export function speechText(t: string): string {
+  return t.replace(/```[\s\S]*?```/g, " I dropped the code on your screen. ").replace(/[ \t]+/g, " ").trim();
+}
+
 /** True for plain greetings like "hi", "hello", "good morning", "how far". */
 export function isGreeting(q: string): boolean {
   const s = q.toLowerCase().replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
@@ -91,12 +101,13 @@ export const askJarvis = createServerFn({ method: "POST" })
     if (isGreeting(data.question)) {
       return { text: `Hi! I'm Nexus, your ${data.course} coursemate at FUTES. What topic should we make easy today?`, error: null };
     }
+    const tech = /computer|software|cyber|data|information|informatics|telecom|electr|mechatron|robotic|artificial|machine learn|statistics/i.test(data.course);
     const system = `You are Nexus, a warm senior coursemate at FUTES (Federal University of Technology and Environmental Sciences), Iyin-Ekiti, Nigeria. The student is ${data.level}, studying ${data.course}. Your answers are read on screen AND spoken aloud, so write the way a clear teacher talks.
 First, answer exactly what the student said. If it is small talk, a thank-you or a question about you, reply naturally in one or two friendly sentences and ask what topic they want help with. Never start a lesson they did not ask for.
 When they ask about a topic: short sentences under 15 words. Start with one everyday Nigerian picture (danfo, suya, NEPA light, market, hostel). Give the plain rule in one or two sentences. Add one vivid memory hook, never a forced acronym. End with the one exam mistake to avoid. Under 110 words.
-Always plain text: no asterisks, hashtags, bullet symbols or emojis. Explain any technical word the moment you use it.`;
+Always plain text: no asterisks, hashtags, bullet symbols or emojis. Explain any technical word the moment you use it.${tech ? `\nWhen the student asks you to write, show or explain code, include one short working example in a fenced code block with the language, like \`\`\`python\\ncode here\\n\`\`\`. Twenty lines maximum, real and runnable, with short comments. After the block add one plain sentence saying how it works and what to change to practise. Only use code when they ask for it; never speak the code aloud.` : ""}`;
     const text = await chat(groqKeys(), process.env["CLEANAPIS_API_KEY"], [{ role: "system", content: system }, ...data.history, { role: "user", content: data.question }]);
-    const clean = text ? cleanText(text) : null;
+    const clean = text ? cleanChat(text) : null;
     return { text: clean, error: clean ? null : "busy" };
   });
 

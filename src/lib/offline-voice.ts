@@ -26,11 +26,13 @@ export async function warmKitten() {
 
 export function stopKitten() { try { src?.stop(); } catch { /* ignore */ } src = null; }
 
-export async function speakOffline(text: string, onEnd?: () => void): Promise<boolean> {
+export async function speakOffline(text: string, onEnd?: () => void, shared?: AudioContext | null): Promise<boolean> {
   try {
     const t = await loadKitten();
     stopKitten();
-    ctx ??= new AudioContext();
+    // Reuse the AudioContext the app unlocked inside the user's tap when one is passed, so mobile autoplay allows it.
+    if (shared) ctx = shared; else ctx ??= new AudioContext();
+    if (ctx.state === "suspended") await ctx.resume().catch(() => undefined);
     const sentences = text.match(/[^.!?]+[.!?]*/g)?.slice(0, 12) ?? [text];
     let stopped = false;
     for (const s of sentences) {

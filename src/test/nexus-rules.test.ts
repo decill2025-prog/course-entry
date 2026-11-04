@@ -18,7 +18,7 @@ describe("nexus rules", () => {
 
 import { schemeFor } from "@/lib/scheme";
 import { COURSES as ALL_COURSES } from "@/lib/nexus-data";
-import { DAILY_CAP, remainingToday, spendOne } from "@/lib/feed-engine";
+import { DAILY_CAP, remainingToday, spendOne, postedToday } from "@/lib/feed-engine";
 describe("scheme of work", () => {
   it("every one of the 35 courses has 100L and 200L courses", () => {
     for (const c of ALL_COURSES) {
