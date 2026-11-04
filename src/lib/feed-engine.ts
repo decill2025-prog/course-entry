@@ -39,6 +39,12 @@ export function spendOne(now = new Date()) {
   localStorage.setItem("nexus.budget", JSON.stringify({ day, n: DAILY_CAP - left + 1 }));
 }
 
+/** True when this device already generated a lesson today: the feed writes at most one fresh AI lesson per day. */
+export function postedToday(now = new Date(), posts: { at: number }[]): boolean {
+  const day = now.toDateString();
+  return posts.some((p) => new Date(p.at).toDateString() === day);
+}
+
 /** Next unused topic, rotated by a per-device seed so different students get different posts. */
 export function nextTopic(level: Level, course: string, faculty: string, used: Set<string>) {
   const all = topicsFor(level, course, faculty);
