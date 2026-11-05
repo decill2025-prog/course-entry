@@ -196,7 +196,7 @@ function RichText({ text, fresh }: { text: string; fresh?: boolean }) {
   FENCE.lastIndex = 0;
   while ((m = FENCE.exec(text))) {
     if (m.index > last) out.push(<div key={k++} className="text-[16px] leading-[1.75] text-foreground/95">{prose(text.slice(last, m.index))}</div>);
-    out.push(<CodeBlock key={k++} lang={m[1]} code={m[2].replace(/\n+$/, "")} />);
+    out.push(<CodeBlock key={k++} lang={m[1] ?? ""} code={m[2]!.replace(/\n+$/, "")} />);
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(<div key={k++} className="text-[16px] leading-[1.75] text-foreground/95">{prose(text.slice(last))}</div>);
