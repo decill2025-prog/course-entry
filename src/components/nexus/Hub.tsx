@@ -2,13 +2,13 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Atom, BadgeCheck, Bell, BookOpen, Brain, Building2, CheckCircle2, ChevronDown, Cog, Cpu, Dna, Download, Eye,
+  ArrowLeft, Atom, BadgeCheck, Bell, BookOpen, Brain, Building2, CheckCircle2, ChevronDown, Cog, Copy, Cpu, Dna, Download, Eye,
   FlaskConical, GraduationCap, Headphones, Home, Library, Lightbulb, Loader2, LogOut, Mic, Pause, Pin, Send, Share2, ShieldAlert, Sigma, Sparkles, Square, WifiOff, X,
 } from "lucide-react";
 import { COURSES, LEVELS, TIMETABLE, courseName, type Level } from "@/lib/nexus-data";
 import { groupOf, lessonsFor, type Icon, type Lesson } from "@/lib/lessons";
-import { askJarvis, generatePost, getShared, listShared, makeQuiz, speak, transcribe, type QuizQ, type SharedPost } from "@/lib/ai.functions";
-import { SESSION_BATCH, loadPosts, mergePosts, nextTopic, remainingToday, savePosts, spendOne, toStored, type StoredPost } from "@/lib/feed-engine";
+import { askJarvis, generatePost, getShared, listShared, makeQuiz, speak, speechText, transcribe, type QuizQ, type SharedPost } from "@/lib/ai.functions";
+import { SESSION_BATCH, loadPosts, mergePosts, nextTopic, postedToday, remainingToday, savePosts, spendOne, toStored, type StoredPost } from "@/lib/feed-engine";
 import { kittenReady, speakOffline, stopKitten, warmKitten } from "@/lib/offline-voice";
 
 export type Profile = { level: Level; course: string; faculty: string };
@@ -27,12 +27,43 @@ const NEWS = {
 
 /** One shared player. Server voice (Deepgram Aura-2 → Deepgram backup → Microsoft) online; KittenTTS on-device offline. */
 let player: HTMLAudioElement | null = null;
+let node: AudioBufferSourceNode | null = null;
+let ac: AudioContext | null = null;
+let unlocked = false;
+
+/** Call synchronously inside a user tap: unlocks programmatic audio on mobile browsers, so the voice still plays after the server reply arrives. */
+export function unlockVoice() {
+  try {
+    ac ??= new AudioContext();
+    void ac.resume();
+    const s = ac.createBufferSource();
+    s.buffer = ac.createBuffer(1, 1, 22050);
+    s.connect(ac.destination);
+    s.start(0);
+    unlocked = true;
+  } catch { unlocked = false; }
+}
+
 async function playVoice(text: string, onEnd?: () => void): Promise<boolean> {
   stopVoice();
-  if (!navigator.onLine) return speakOffline(text, onEnd);
+  if (!navigator.onLine) return speakOffline(text, onEnd, ac);
   try {
     const { audio, mime } = await speak({ data: { text } });
     if (audio) {
+      // The tap that started this is long gone, so play through the AudioContext unlocked on tap (mobile autoplay policy).
+      if (unlocked && ac) {
+        const bin = atob(audio);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const buf = await ac.decodeAudioData(bytes.buffer as ArrayBuffer);
+        const n = ac.createBufferSource();
+        n.buffer = buf;
+        n.connect(ac.destination);
+        n.onended = () => onEnd?.();
+        n.start();
+        node = n;
+        return true;
+      }
       const a = new Audio(`data:${mime};base64,${audio}`);
       player = a;
       a.onended = () => onEnd?.();
@@ -42,7 +73,7 @@ async function playVoice(text: string, onEnd?: () => void): Promise<boolean> {
   } catch { /* fall through to offline voice */ }
   return speakOffline(text, onEnd);
 }
-const stopVoice = () => { player?.pause(); player = null; stopKitten(); };
+const stopVoice = () => { try { node?.stop(); } catch { /* already stopped */ } node = null; player?.pause(); player = null; stopKitten(); };
 
 async function sharePost(id: string, title: string) {
   const url = `${window.location.origin}/?post=${id}`;
@@ -129,6 +160,49 @@ function NexusOrb({ size }: { size: number }) {
   );
 }
 
+const FENCE = /```([\w+#.-]*)\n?([\s\S]*?)```/g;
+
+/** A copyable code frame: dark box, language tag, one-tap copy — for software and tech students. */
+function CodeBlock({ code, lang }: { code: string; lang?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="my-2 overflow-hidden rounded-2xl border border-border bg-graphite/90">
+      <div className="flex items-center justify-between border-b border-border/70 px-3 py-1.5">
+        <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{lang || "code"}</span>
+        <button
+          onClick={() => navigator.clipboard?.writeText(code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600); }).catch(() => undefined)}
+          className={`flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-bold ${copied ? "text-emerald" : "text-primary hover:bg-primary/10"}`}
+        >
+          {copied ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="overflow-x-auto px-3 py-2.5 font-mono text-[13px] leading-relaxed text-foreground/95"><code>{code}</code></pre>
+    </div>
+  );
+}
+
+/** Prose paragraphs plus copyable code frames in one Nexus reply. */
+function RichText({ text, fresh }: { text: string; fresh?: boolean }) {
+  const out: ReactNode[] = [];
+  let last = 0, k = 0;
+  let m: RegExpExecArray | null;
+  const prose = (t: string) => (
+    <p className="whitespace-pre-wrap">
+      {fresh
+        ? t.split(/(\s+)/).map((w, j) => (/^\s+$/.test(w) ? w : <span key={j} className="word-up" style={{ animationDelay: `${Math.min(j * 22, 2200)}ms` }}>{w}</span>))
+        : t}
+    </p>
+  );
+  FENCE.lastIndex = 0;
+  while ((m = FENCE.exec(text))) {
+    if (m.index > last) out.push(<div key={k++} className="text-[16px] leading-[1.75] text-foreground/95">{prose(text.slice(last, m.index))}</div>);
+    out.push(<CodeBlock key={k++} lang={m[1]} code={m[2].replace(/\n+$/, "")} />);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(<div key={k++} className="text-[16px] leading-[1.75] text-foreground/95">{prose(text.slice(last))}</div>);
+  return <>{out}</>;
+}
+
 export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch: (p: Profile) => void; onExit: () => void }) {
   const [tab, setTab] = useState<"feed" | "vault">("feed");
   const [view, setView] = useState<string | null>(null);
@@ -195,6 +269,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
     try {
       for (let i = 0; i < count && remainingToday() > 0; i++) {
         const saved = loadPosts(profile.level, profile.course);
+        if (postedToday(new Date(), saved)) break; // one fresh lesson a day — protects the AI request budget
         const t = nextTopic(profile.level, profile.course, profile.faculty, new Set(saved.map((p) => `${p.code}:${p.tag}`)));
         if (!t) break;
         const r = await generatePost({ data: { level: profile.level, course, code: t.code, courseTitle: t.courseTitle, topic: t.topic } }).catch(() => ({ post: null }));
@@ -221,8 +296,8 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
         savePosts(profile.level, profile.course, merged);
         setAiPosts(merged);
       }
-      const fresh = merged[0] && Date.now() - merged[0].at < 20 * 60 * 1000;
-      if (!fresh || merged.length < 6) void writeMore(SESSION_BATCH);
+      // One fresh AI lesson per day per device — never generate on every visit, so the AI budget lasts.
+      if (!postedToday(new Date(), merged) && merged.length < 6) void writeMore(SESSION_BATCH);
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -353,7 +428,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
             <span className="grid h-10 w-10 place-items-center rounded-2xl bg-primary/15 text-primary">{voiceOffline ? <CheckCircle2 className="h-5 w-5" /> : <Download className="h-5 w-5" />}</span>
             <span className="min-w-0"><span className="block text-sm font-semibold">{voiceOffline ? "Offline voice is ready" : "Download offline voice"}</span><span className="block text-xs text-muted-foreground">Kitten neural voice reads lessons with no internet.</span></span>
           </button>
-          <Vault lessons={all} course={course} lvl={lvl} faculty={profile.faculty} onOpen={setView} onAsk={() => setOrb(true)} />
+          <Vault lessons={all} course={course} lvl={lvl} faculty={profile.faculty} onOpen={setView} onAsk={() => { unlockVoice(); setOrb(true); }} />
           </>
         )}
         </div>
@@ -368,7 +443,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
             <button onClick={() => go("vault")} className={`flex flex-col items-center gap-0.5 text-[11px] font-semibold ${tab === "vault" ? "text-primary" : "text-muted-foreground"}`}><Library className="h-5 w-5" /> Study Vault</button>
           </div>
           <button
-            onClick={() => setOrb(true)}
+            onClick={() => { unlockVoice(); setOrb(true); }}
             aria-label="Open Nexus"
             className={`pointer-events-auto absolute left-1/2 top-0 -ml-[38px] -mt-[30px] rounded-full bg-graphite p-1.5 ring-1 ring-primary/30 transition-transform duration-300 ease-out will-change-transform ${hidden ? "translate-y-[40px] scale-[0.72]" : ""}`}
           >
@@ -423,7 +498,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
                 <p className="mt-4 text-sm text-muted-foreground">Close your eyes, say the trick out loud, then recall the 3 points. That's it — it sticks.</p>
               </div>
               <button onClick={() => setQuiz(viewed)} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-gold/40 bg-gold/10 py-3 font-semibold text-gold"><Brain className="h-4 w-4" /> Test yourself — practice quiz</button>
-              <button onClick={() => { closeView(); setOrb(true); }} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 font-semibold text-primary-foreground"><Mic className="h-4 w-4" /> Still confused? Ask Nexus</button>
+              <button onClick={() => { closeView(); unlockVoice(); setOrb(true); }} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 font-semibold text-primary-foreground"><Mic className="h-4 w-4" /> Still confused? Ask Nexus</button>
             </div>
           </div>
         </div>
