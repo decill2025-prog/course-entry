@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft, Atom, BadgeCheck, Bell, BookOpen, Brain, Building2, CheckCircle2, ChevronDown, Cog, Copy, Cpu, Dna, Download, Eye,
-  FlaskConical, GraduationCap, Headphones, Home, Library, Lightbulb, Loader2, LogOut, Mic, Pause, Pin, Send, Share2, ShieldAlert, Sigma, Sparkles, Square, WifiOff, X,
 } from "lucide-react";
 import { COURSES, LEVELS, TIMETABLE, courseName, type Level } from "@/lib/nexus-data";
 import { groupOf, lessonsFor, type Icon, type Lesson } from "@/lib/lessons";
@@ -776,7 +775,7 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
     if (rec.current?.state === "recording") rec.current.stop();
   };
 
-  const label = { idle: "Tap the mic and talk", listening: "Listening… tap to send", thinking: "Thinking…", voice: "Preparing voice… please wait", speaking: "Speaking…" }[state];
+  const label = { idle: "Ask anything — or hold the mic and talk", thinking: "Thinking…", voice: "Preparing voice…", speaking: "Speaking…" }[state];
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 backdrop-blur-sm animate-fade sm:items-center sm:p-4" onClick={onClose}>
@@ -811,8 +810,8 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
             ) : (
               <div key={i} className="flex gap-3">
                 <Avatar faculty={faculty} size={30} />
-                <div className="min-w-0 flex-1 whitespace-pre-wrap pt-1 text-[16px] leading-[1.75] text-foreground/95">
-                  {m.fresh !== false ? m.text.split(" ").map((w, j) => <span key={j} className="word-up" style={{ animationDelay: `${Math.min(j * 28, 2400)}ms` }}>{w} </span>) : m.text}
+                <div className="min-w-0 flex-1 pt-1">
+                  <RichText text={m.text} fresh={m.fresh !== false} />
                 </div>
               </div>
             ))}
@@ -829,11 +828,19 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
           <form onSubmit={(e) => { e.preventDefault(); void send(input); }} className="rounded-3xl border border-border bg-input/40 p-2 focus-within:border-primary/60">
             <textarea ref={box} value={input} rows={2} onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && window.matchMedia("(pointer: fine)").matches) { e.preventDefault(); void send(input); } }}
-              placeholder={state === "listening" ? "Listening… tap stop when done" : "Ask Nexus anything about your course…"}
+              placeholder="Ask Nexus anything about your course…"
               className="block max-h-[180px] min-h-[52px] w-full resize-none bg-transparent px-2 py-1.5 text-[16px] leading-relaxed outline-none" />
             <div className="mt-1 flex items-center justify-between">
-              <button type="button" onClick={mic} aria-label={state === "listening" ? "Stop recording" : "Talk"} className={`flex h-10 items-center gap-2 rounded-full px-3 text-sm font-medium ${state === "listening" ? "animate-pulse bg-destructive text-destructive-foreground" : "bg-secondary hover:bg-secondary/70"}`}>
-                {state === "listening" ? <><Square className="h-4 w-4" /> Stop</> : <><Mic className="h-4 w-4" /> Speak</>}
+              <button
+                type="button"
+                aria-label={voice === "off" ? "Hold to talk" : "Release to send"}
+                onPointerDown={(e) => { if (state === "thinking" || voice !== "off") return; e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); unlockVoice(); void startHold(e.clientY); }}
+                onPointerMove={onHoldMove}
+                onPointerUp={endHold}
+                onPointerCancel={endHold}
+                className={`flex h-10 shrink-0 touch-none select-none items-center gap-2 rounded-full px-3 text-sm font-medium ${voice !== "off" ? "bg-primary text-primary-foreground" : "bg-secondary hover:bg-secondary/70"}`}
+              >
+                <Mic className="h-4 w-4" /> {voice !== "off" ? "Recording" : "Hold to talk"}
               </button>
               <button type="submit" disabled={!input.trim() || state === "thinking"} aria-label="Send" className="grid h-10 w-10 place-items-center rounded-full bg-primary text-primary-foreground disabled:opacity-40"><Send className="h-4 w-4" /></button>
             </div>
