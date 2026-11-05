@@ -41,6 +41,14 @@ describe("daily AI budget", () => {
     expect(remainingToday(new Date("2026-10-20T10:00:00Z"))).toBe(20);
   });
 });
+describe("one lesson per day", () => {
+  it("writes at most one AI lesson per day per device", () => {
+    const morning = new Date("2026-11-04T08:00:00Z");
+    expect(postedToday(morning, [{ at: Date.parse("2026-11-04T06:00:00Z") }])).toBe(true);
+    expect(postedToday(morning, [{ at: Date.parse("2026-11-03T18:00:00Z") }])).toBe(false);
+    expect(postedToday(morning, [])).toBe(false);
+  });
+});
 
 import { lessonsFor, allLessons } from "@/lib/lessons";
 describe("course-matched feed", () => {

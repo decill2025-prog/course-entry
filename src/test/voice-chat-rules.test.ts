@@ -10,3 +10,12 @@ describe("speech-to-text silence filter", () => {
   it("drops a lone 'Thank you'", () => expect(isGhostTranscript("Thank you.")).toBe(true));
   it("keeps real speech", () => expect(isGhostTranscript("Thank you, now explain Ohm's law")).toBe(false));
 });
+describe("chat code blocks", () => {
+  it("keeps fenced code intact for copying", () => {
+    const t = cleanChat("Use this:\n```python\nprint('hi')\n```");
+    expect(t).toContain("```python");
+    expect(t).toContain("print('hi')");
+  });
+  it("strips markdown noise from prose", () => expect(cleanChat("a **bold** idea")).toBe("a bold idea"));
+  it("never reads code aloud", () => expect(speechText("Look:\n```js\nlet x = 1;\n```")).not.toContain("let x"));
+});

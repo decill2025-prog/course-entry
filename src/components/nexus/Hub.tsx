@@ -2,13 +2,13 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Atom, BadgeCheck, Bell, BookOpen, Brain, Building2, CheckCircle2, ChevronDown, Cog, Cpu, Dna, Download, Eye,
-  FlaskConical, GraduationCap, Headphones, Home, Library, Lightbulb, Loader2, LogOut, Mic, Pause, Pin, Send, Share2, ShieldAlert, Sigma, Sparkles, Square, WifiOff, X,
+  ArrowLeft, Atom, BadgeCheck, Bell, BookOpen, Brain, Building2, CheckCircle2, ChevronDown, Cog, Copy, Cpu, Dna, Download, Eye,
+  FlaskConical, GraduationCap, Headphones, Home, Library, Lightbulb, Loader2, LogOut, Mic, Pause, Pin, Send, Share2, ShieldAlert, Sigma, Sparkles, WifiOff, X,
 } from "lucide-react";
 import { COURSES, LEVELS, TIMETABLE, courseName, type Level } from "@/lib/nexus-data";
 import { groupOf, lessonsFor, type Icon, type Lesson } from "@/lib/lessons";
-import { askJarvis, generatePost, getShared, listShared, makeQuiz, speak, transcribe, type QuizQ, type SharedPost } from "@/lib/ai.functions";
-import { SESSION_BATCH, loadPosts, mergePosts, nextTopic, remainingToday, savePosts, spendOne, toStored, type StoredPost } from "@/lib/feed-engine";
+import { askJarvis, generatePost, getShared, listShared, makeQuiz, speak, speechText, transcribe, type QuizQ, type SharedPost } from "@/lib/ai.functions";
+import { SESSION_BATCH, loadPosts, mergePosts, nextTopic, postedToday, remainingToday, savePosts, spendOne, toStored, type StoredPost } from "@/lib/feed-engine";
 import { kittenReady, speakOffline, stopKitten, warmKitten } from "@/lib/offline-voice";
 
 export type Profile = { level: Level; course: string; faculty: string };
@@ -27,12 +27,43 @@ const NEWS = {
 
 /** One shared player. Server voice (Deepgram Aura-2 → Deepgram backup → Microsoft) online; KittenTTS on-device offline. */
 let player: HTMLAudioElement | null = null;
+let node: AudioBufferSourceNode | null = null;
+let ac: AudioContext | null = null;
+let unlocked = false;
+
+/** Call synchronously inside a user tap: unlocks programmatic audio on mobile browsers, so the voice still plays after the server reply arrives. */
+export function unlockVoice() {
+  try {
+    ac ??= new AudioContext();
+    void ac.resume();
+    const s = ac.createBufferSource();
+    s.buffer = ac.createBuffer(1, 1, 22050);
+    s.connect(ac.destination);
+    s.start(0);
+    unlocked = true;
+  } catch { unlocked = false; }
+}
+
 async function playVoice(text: string, onEnd?: () => void): Promise<boolean> {
   stopVoice();
-  if (!navigator.onLine) return speakOffline(text, onEnd);
+  if (!navigator.onLine) return speakOffline(text, onEnd, ac);
   try {
     const { audio, mime } = await speak({ data: { text } });
     if (audio) {
+      // The tap that started this is long gone, so play through the AudioContext unlocked on tap (mobile autoplay policy).
+      if (unlocked && ac) {
+        const bin = atob(audio);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const buf = await ac.decodeAudioData(bytes.buffer as ArrayBuffer);
+        const n = ac.createBufferSource();
+        n.buffer = buf;
+        n.connect(ac.destination);
+        n.onended = () => onEnd?.();
+        n.start();
+        node = n;
+        return true;
+      }
       const a = new Audio(`data:${mime};base64,${audio}`);
       player = a;
       a.onended = () => onEnd?.();
@@ -42,7 +73,7 @@ async function playVoice(text: string, onEnd?: () => void): Promise<boolean> {
   } catch { /* fall through to offline voice */ }
   return speakOffline(text, onEnd);
 }
-const stopVoice = () => { player?.pause(); player = null; stopKitten(); };
+const stopVoice = () => { try { node?.stop(); } catch { /* already stopped */ } node = null; player?.pause(); player = null; stopKitten(); };
 
 async function sharePost(id: string, title: string) {
   const url = `${window.location.origin}/?post=${id}`;
@@ -129,6 +160,49 @@ function NexusOrb({ size }: { size: number }) {
   );
 }
 
+const FENCE = /```([\w+#.-]*)\n?([\s\S]*?)```/g;
+
+/** A copyable code frame: dark box, language tag, one-tap copy — for software and tech students. */
+function CodeBlock({ code, lang }: { code: string; lang?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="my-2 overflow-hidden rounded-2xl border border-border bg-graphite/90">
+      <div className="flex items-center justify-between border-b border-border/70 px-3 py-1.5">
+        <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{lang || "code"}</span>
+        <button
+          onClick={() => navigator.clipboard?.writeText(code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600); }).catch(() => undefined)}
+          className={`flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-bold ${copied ? "text-emerald" : "text-primary hover:bg-primary/10"}`}
+        >
+          {copied ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="overflow-x-auto px-3 py-2.5 font-mono text-[13px] leading-relaxed text-foreground/95"><code>{code}</code></pre>
+    </div>
+  );
+}
+
+/** Prose paragraphs plus copyable code frames in one Nexus reply. */
+function RichText({ text, fresh }: { text: string; fresh?: boolean }) {
+  const out: ReactNode[] = [];
+  let last = 0, k = 0;
+  let m: RegExpExecArray | null;
+  const prose = (t: string) => (
+    <p className="whitespace-pre-wrap">
+      {fresh
+        ? t.split(/(\s+)/).map((w, j) => (/^\s+$/.test(w) ? w : <span key={j} className="word-up" style={{ animationDelay: `${Math.min(j * 22, 2200)}ms` }}>{w}</span>))
+        : t}
+    </p>
+  );
+  FENCE.lastIndex = 0;
+  while ((m = FENCE.exec(text))) {
+    if (m.index > last) out.push(<div key={k++} className="text-[16px] leading-[1.75] text-foreground/95">{prose(text.slice(last, m.index))}</div>);
+    out.push(<CodeBlock key={k++} lang={m[1] ?? ""} code={m[2]!.replace(/\n+$/, "")} />);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(<div key={k++} className="text-[16px] leading-[1.75] text-foreground/95">{prose(text.slice(last))}</div>);
+  return <>{out}</>;
+}
+
 export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch: (p: Profile) => void; onExit: () => void }) {
   const [tab, setTab] = useState<"feed" | "vault">("feed");
   const [view, setView] = useState<string | null>(null);
@@ -195,6 +269,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
     try {
       for (let i = 0; i < count && remainingToday() > 0; i++) {
         const saved = loadPosts(profile.level, profile.course);
+        if (postedToday(new Date(), saved)) break; // one fresh lesson a day — protects the AI request budget
         const t = nextTopic(profile.level, profile.course, profile.faculty, new Set(saved.map((p) => `${p.code}:${p.tag}`)));
         if (!t) break;
         const r = await generatePost({ data: { level: profile.level, course, code: t.code, courseTitle: t.courseTitle, topic: t.topic } }).catch(() => ({ post: null }));
@@ -221,8 +296,8 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
         savePosts(profile.level, profile.course, merged);
         setAiPosts(merged);
       }
-      const fresh = merged[0] && Date.now() - merged[0].at < 20 * 60 * 1000;
-      if (!fresh || merged.length < 6) void writeMore(SESSION_BATCH);
+      // One fresh AI lesson per day per device — never generate on every visit, so the AI budget lasts.
+      if (!postedToday(new Date(), merged) && merged.length < 6) void writeMore(SESSION_BATCH);
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -353,7 +428,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
             <span className="grid h-10 w-10 place-items-center rounded-2xl bg-primary/15 text-primary">{voiceOffline ? <CheckCircle2 className="h-5 w-5" /> : <Download className="h-5 w-5" />}</span>
             <span className="min-w-0"><span className="block text-sm font-semibold">{voiceOffline ? "Offline voice is ready" : "Download offline voice"}</span><span className="block text-xs text-muted-foreground">Kitten neural voice reads lessons with no internet.</span></span>
           </button>
-          <Vault lessons={all} course={course} lvl={lvl} faculty={profile.faculty} onOpen={setView} onAsk={() => setOrb(true)} />
+          <Vault lessons={all} course={course} lvl={lvl} faculty={profile.faculty} onOpen={setView} onAsk={() => { unlockVoice(); setOrb(true); }} />
           </>
         )}
         </div>
@@ -368,7 +443,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
             <button onClick={() => go("vault")} className={`flex flex-col items-center gap-0.5 text-[11px] font-semibold ${tab === "vault" ? "text-primary" : "text-muted-foreground"}`}><Library className="h-5 w-5" /> Study Vault</button>
           </div>
           <button
-            onClick={() => setOrb(true)}
+            onClick={() => { unlockVoice(); setOrb(true); }}
             aria-label="Open Nexus"
             className={`pointer-events-auto absolute left-1/2 top-0 -ml-[38px] -mt-[30px] rounded-full bg-graphite p-1.5 ring-1 ring-primary/30 transition-transform duration-300 ease-out will-change-transform ${hidden ? "translate-y-[40px] scale-[0.72]" : ""}`}
           >
@@ -423,7 +498,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
                 <p className="mt-4 text-sm text-muted-foreground">Close your eyes, say the trick out loud, then recall the 3 points. That's it — it sticks.</p>
               </div>
               <button onClick={() => setQuiz(viewed)} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-gold/40 bg-gold/10 py-3 font-semibold text-gold"><Brain className="h-4 w-4" /> Test yourself — practice quiz</button>
-              <button onClick={() => { closeView(); setOrb(true); }} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 font-semibold text-primary-foreground"><Mic className="h-4 w-4" /> Still confused? Ask Nexus</button>
+              <button onClick={() => { closeView(); unlockVoice(); setOrb(true); }} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 font-semibold text-primary-foreground"><Mic className="h-4 w-4" /> Still confused? Ask Nexus</button>
             </div>
           </div>
         </div>
@@ -574,8 +649,15 @@ type Msg = { from: "ai" | "me"; text: string; fresh?: boolean };
 function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { lessons: Lesson[]; course: string; level: Level; faculty: string; onClose: () => void; onOpen: (id: string) => void; onNote: (n: string) => void }) {
   const [msgs, setMsgs] = useState<Msg[]>([{ from: "ai", text: `I'm Nexus, your ${course} coursemate. Ask me any topic and I'll explain it simply, or tap the mic.` }]);
   const [input, setInput] = useState("");
-  const [state, setState] = useState<"idle" | "listening" | "thinking" | "voice" | "speaking">("idle");
+  const [state, setState] = useState<"idle" | "thinking" | "voice" | "speaking">("idle");
+  const [voice, setVoice] = useState<"off" | "rec" | "cancel">("off");
+  const voiceRef = useRef<"off" | "rec" | "cancel">("off");
   const rec = useRef<MediaRecorder | null>(null);
+  const stream = useRef<MediaStream | null>(null);
+  const bars = useRef<(HTMLSpanElement | null)[]>([]);
+  const rafId = useRef(0);
+  const startY = useRef(0);
+  const released = useRef(false);
   const end = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { const el = box.current; if (!el) return; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 180)}px`; }, [input]);
@@ -583,7 +665,11 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
   useEffect(() => { try { const m = JSON.parse(localStorage.getItem(chatKey) || "null") as Msg[] | null; if (m?.length) setMsgs(m.map((x) => ({ ...x, fresh: false }))); } catch { /* ignore */ } }, [chatKey]);
   useEffect(() => { try { localStorage.setItem(chatKey, JSON.stringify(msgs.slice(-40).map(({ from, text }) => ({ from, text })))); } catch { /* ignore */ } }, [msgs, chatKey]);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs, state]);
-  useEffect(() => () => { rec.current?.state === "recording" && rec.current.stop(); }, []);
+  useEffect(() => () => {
+    try { if (rec.current?.state === "recording") rec.current.stop(); } catch { /* ignore */ }
+    stream.current?.getTracks().forEach((t) => t.stop());
+    cancelAnimationFrame(rafId.current);
+  }, []);
   const chips = [`Explain ${lessons[0]?.code ?? "my course"} simply`, "Give me 3 exam questions", "Explain it like I'm 12", "Open Nexus News"];
 
   // Local intents: 0 API calls, instant.
@@ -600,7 +686,8 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
     setState("voice");
     let ended = false;
     try {
-      const p = playVoice(text, () => { ended = true; setState("idle"); });
+      // The voice reads the explanation, never raw code — code stays on screen where it can be copied.
+      const p = playVoice(speechText(text), () => { ended = true; setState("idle"); });
       const ok = await p;
       if (!ok || ended) setState("idle"); else setState("speaking");
     } catch { setState("idle"); }
@@ -609,6 +696,7 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
   const send = async (text: string) => {
     const q = text.trim();
     if (!q || state === "thinking") return;
+    unlockVoice();
     const history = msgs.slice(-6).map((m) => ({ role: m.from === "ai" ? ("assistant" as const) : ("user" as const), content: m.text }));
     setMsgs((m) => [...m, { from: "me", text: q }]); setInput("");
     const l = local(q.toLowerCase());
@@ -623,37 +711,91 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
     } catch { setMsgs((m) => [...m, { from: "ai", text: "Connection dropped. Try again." }]); setState("idle"); }
   };
 
-  const mic = async () => {
-    if (state === "listening") { rec.current?.stop(); return; }
-    stopVoice();
+  // Voice mode: hold the mic — the frame opens, the student talks, release sends. Slide up cancels.
+  const finishHold = async (chunks: Blob[], mime: string) => {
+    cancelAnimationFrame(rafId.current);
+    stream.current?.getTracks().forEach((t) => t.stop());
+    stream.current = null; rec.current = null;
+    const cancelled = voiceRef.current === "cancel";
+    voiceRef.current = "off"; setVoice("off");
+    if (cancelled) return;
+    const blob = new Blob(chunks, { type: mime });
+    if (blob.size < 2000) { toast("Too short — hold the mic and speak."); return; }
+    setState("thinking");
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream); const chunks: Blob[] = [];
-      mr.ondataavailable = (e) => chunks.push(e.data);
-      mr.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        setState("thinking");
-        const blob = new Blob(chunks, { type: mr.mimeType || "audio/webm" });
-        const buf = new Uint8Array(await blob.arrayBuffer());
-        let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-        try {
-          const { text } = await transcribe({ data: { audio: btoa(bin), mime: blob.type } });
-          setState("idle");
-          // Show the words in the box first so the student can fix them before sending.
-          if (text) { setInput((v) => (v ? `${v} ${text}` : text)); setTimeout(() => box.current?.focus(), 50); }
-          else toast("Didn't catch that — try again.");
-        } catch { setState("idle"); toast.error("Voice failed — check your connection."); }
-      };
-      rec.current = mr; mr.start(); setState("listening");
-      setTimeout(() => mr.state === "recording" && mr.stop(), 12000);
-    } catch { toast.error("Allow microphone access to talk to Nexus."); }
+      const { text } = await transcribe({ data: { audio: btoa(bin), mime } });
+      // Voice mode sends straight away — no typing needed.
+      if (text) void send(text);
+      else { setState("idle"); toast("Didn't catch that — hold the mic and try again."); }
+    } catch { setState("idle"); toast.error("Voice failed — check your connection."); }
   };
 
-  const label = { idle: "Tap the mic and talk", listening: "Listening… tap to send", thinking: "Thinking…", voice: "Preparing voice… please wait", speaking: "Speaking…" }[state];
+  const startHold = async (y: number) => {
+    startY.current = y;
+    released.current = false;
+    voiceRef.current = "rec"; setVoice("rec");
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.current = s;
+      const actx = new AudioContext();
+      void actx.resume();
+      const an = actx.createAnalyser();
+      an.fftSize = 64;
+      actx.createMediaStreamSource(s).connect(an);
+      const data = new Uint8Array(an.frequencyBinCount);
+      const tick = () => {
+        an.getByteFrequencyData(data);
+        for (let i = 0; i < bars.current.length; i++) {
+          const b = bars.current[i];
+          if (b) b.style.transform = `scaleY(${0.15 + (data[(i * 2) % data.length]! / 255) * 0.85})`;
+        }
+        rafId.current = requestAnimationFrame(tick);
+      };
+      tick();
+      const mr = new MediaRecorder(s);
+      const chunks: Blob[] = [];
+      mr.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      mr.onstop = () => { actx.close().catch(() => undefined); void finishHold(chunks, mr.mimeType || "audio/webm"); };
+      rec.current = mr;
+      mr.start();
+      if (released.current) mr.stop(); // released before the mic opened — the tiny clip is filtered as too short
+      setTimeout(() => { if (rec.current === mr && mr.state === "recording") mr.stop(); }, 15000);
+    } catch {
+      voiceRef.current = "off"; setVoice("off");
+      toast.error("Allow microphone access to talk to Nexus.");
+    }
+  };
+
+  const onHoldMove = (e: { clientY: number }) => {
+    if (voiceRef.current === "rec" && startY.current - e.clientY > 90) { voiceRef.current = "cancel"; setVoice("cancel"); }
+  };
+  const endHold = () => {
+    released.current = true;
+    if (rec.current?.state === "recording") rec.current.stop();
+  };
+
+  const label = { idle: "Ask anything — or hold the mic and talk", thinking: "Thinking…", voice: "Preparing voice…", speaking: "Speaking…" }[state];
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 backdrop-blur-sm animate-fade sm:items-center sm:p-4" onClick={onClose}>
-      <div className="card-solid flex h-[88dvh] w-full max-w-2xl flex-col rounded-t-[2rem] sm:h-[86dvh] sm:rounded-[2rem]" onClick={(e) => e.stopPropagation()}>
+      <div className="card-solid relative flex h-[88dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-[2rem] sm:h-[86dvh] sm:rounded-[2rem]" onClick={(e) => e.stopPropagation()}>
+        {/* Voice mode frame: hold the mic, the bars dance with the student's voice, release sends. */}
+        {voice !== "off" && (
+          <div className="absolute inset-0 z-20 flex animate-fade flex-col items-center justify-between bg-graphite/95 px-6 pb-10 pt-16">
+            <p className={`text-center text-sm font-medium ${voice === "cancel" ? "text-destructive" : "text-muted-foreground"}`}>{voice === "cancel" ? "Release to cancel" : "Release to send · slide up to cancel"}</p>
+            <div aria-hidden className="flex h-24 items-center gap-[3px]">
+              {Array.from({ length: 34 }, (_, i) => (
+                <span key={i} ref={(el) => { bars.current[i] = el; }} className="h-14 w-[3px] origin-center rounded-full bg-primary will-change-transform" style={{ transform: "scaleY(0.15)" }} />
+              ))}
+            </div>
+            <div className="flex flex-col items-center gap-3">
+              <NexusOrb size={46} />
+              <p className="busy-glow text-sm font-semibold text-primary">Listening — speak now</p>
+            </div>
+          </div>
+        )}
         <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border px-4">
           <NexusOrb size={38} />
           <div className="min-w-0 flex-1 leading-tight">
@@ -669,8 +811,8 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
             ) : (
               <div key={i} className="flex gap-3">
                 <Avatar faculty={faculty} size={30} />
-                <div className="min-w-0 flex-1 whitespace-pre-wrap pt-1 text-[16px] leading-[1.75] text-foreground/95">
-                  {m.fresh !== false ? m.text.split(" ").map((w, j) => <span key={j} className="word-up" style={{ animationDelay: `${Math.min(j * 28, 2400)}ms` }}>{w} </span>) : m.text}
+                <div className="min-w-0 flex-1 pt-1">
+                  <RichText text={m.text} fresh={m.fresh !== false} />
                 </div>
               </div>
             ))}
@@ -687,11 +829,19 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
           <form onSubmit={(e) => { e.preventDefault(); void send(input); }} className="rounded-3xl border border-border bg-input/40 p-2 focus-within:border-primary/60">
             <textarea ref={box} value={input} rows={2} onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && window.matchMedia("(pointer: fine)").matches) { e.preventDefault(); void send(input); } }}
-              placeholder={state === "listening" ? "Listening… tap stop when done" : "Ask Nexus anything about your course…"}
+              placeholder="Ask Nexus anything about your course…"
               className="block max-h-[180px] min-h-[52px] w-full resize-none bg-transparent px-2 py-1.5 text-[16px] leading-relaxed outline-none" />
             <div className="mt-1 flex items-center justify-between">
-              <button type="button" onClick={mic} aria-label={state === "listening" ? "Stop recording" : "Talk"} className={`flex h-10 items-center gap-2 rounded-full px-3 text-sm font-medium ${state === "listening" ? "animate-pulse bg-destructive text-destructive-foreground" : "bg-secondary hover:bg-secondary/70"}`}>
-                {state === "listening" ? <><Square className="h-4 w-4" /> Stop</> : <><Mic className="h-4 w-4" /> Speak</>}
+              <button
+                type="button"
+                aria-label={voice === "off" ? "Hold to talk" : "Release to send"}
+                onPointerDown={(e) => { if (state === "thinking" || voice !== "off") return; e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); unlockVoice(); void startHold(e.clientY); }}
+                onPointerMove={onHoldMove}
+                onPointerUp={endHold}
+                onPointerCancel={endHold}
+                className={`flex h-10 shrink-0 touch-none select-none items-center gap-2 rounded-full px-3 text-sm font-medium ${voice !== "off" ? "bg-primary text-primary-foreground" : "bg-secondary hover:bg-secondary/70"}`}
+              >
+                <Mic className="h-4 w-4" /> {voice !== "off" ? "Recording" : "Hold to talk"}
               </button>
               <button type="submit" disabled={!input.trim() || state === "thinking"} aria-label="Send" className="grid h-10 w-10 place-items-center rounded-full bg-primary text-primary-foreground disabled:opacity-40"><Send className="h-4 w-4" /></button>
             </div>
