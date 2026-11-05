@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft, Atom, BadgeCheck, Bell, BookOpen, Brain, Building2, CheckCircle2, ChevronDown, Cog, Copy, Cpu, Dna, Download, Eye,
+  FlaskConical, GraduationCap, Headphones, Home, Library, Lightbulb, Loader2, LogOut, Mic, Pause, Pin, Send, Share2, ShieldAlert, Sigma, Sparkles, WifiOff, X,
 } from "lucide-react";
 import { COURSES, LEVELS, TIMETABLE, courseName, type Level } from "@/lib/nexus-data";
 import { groupOf, lessonsFor, type Icon, type Lesson } from "@/lib/lessons";
