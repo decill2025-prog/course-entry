@@ -649,8 +649,15 @@ type Msg = { from: "ai" | "me"; text: string; fresh?: boolean };
 function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { lessons: Lesson[]; course: string; level: Level; faculty: string; onClose: () => void; onOpen: (id: string) => void; onNote: (n: string) => void }) {
   const [msgs, setMsgs] = useState<Msg[]>([{ from: "ai", text: `I'm Nexus, your ${course} coursemate. Ask me any topic and I'll explain it simply, or tap the mic.` }]);
   const [input, setInput] = useState("");
-  const [state, setState] = useState<"idle" | "listening" | "thinking" | "voice" | "speaking">("idle");
+  const [state, setState] = useState<"idle" | "thinking" | "voice" | "speaking">("idle");
+  const [voice, setVoice] = useState<"off" | "rec" | "cancel">("off");
+  const voiceRef = useRef<"off" | "rec" | "cancel">("off");
   const rec = useRef<MediaRecorder | null>(null);
+  const stream = useRef<MediaStream | null>(null);
+  const bars = useRef<(HTMLSpanElement | null)[]>([]);
+  const rafId = useRef(0);
+  const startY = useRef(0);
+  const released = useRef(false);
   const end = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { const el = box.current; if (!el) return; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 180)}px`; }, [input]);
@@ -658,7 +665,11 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
   useEffect(() => { try { const m = JSON.parse(localStorage.getItem(chatKey) || "null") as Msg[] | null; if (m?.length) setMsgs(m.map((x) => ({ ...x, fresh: false }))); } catch { /* ignore */ } }, [chatKey]);
   useEffect(() => { try { localStorage.setItem(chatKey, JSON.stringify(msgs.slice(-40).map(({ from, text }) => ({ from, text })))); } catch { /* ignore */ } }, [msgs, chatKey]);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs, state]);
-  useEffect(() => () => { rec.current?.state === "recording" && rec.current.stop(); }, []);
+  useEffect(() => () => {
+    try { if (rec.current?.state === "recording") rec.current.stop(); } catch { /* ignore */ }
+    stream.current?.getTracks().forEach((t) => t.stop());
+    cancelAnimationFrame(rafId.current);
+  }, []);
   const chips = [`Explain ${lessons[0]?.code ?? "my course"} simply`, "Give me 3 exam questions", "Explain it like I'm 12", "Open Nexus News"];
 
   // Local intents: 0 API calls, instant.
@@ -675,7 +686,8 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
     setState("voice");
     let ended = false;
     try {
-      const p = playVoice(text, () => { ended = true; setState("idle"); });
+      // The voice reads the explanation, never raw code — code stays on screen where it can be copied.
+      const p = playVoice(speechText(text), () => { ended = true; setState("idle"); });
       const ok = await p;
       if (!ok || ended) setState("idle"); else setState("speaking");
     } catch { setState("idle"); }
@@ -684,6 +696,7 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
   const send = async (text: string) => {
     const q = text.trim();
     if (!q || state === "thinking") return;
+    unlockVoice();
     const history = msgs.slice(-6).map((m) => ({ role: m.from === "ai" ? ("assistant" as const) : ("user" as const), content: m.text }));
     setMsgs((m) => [...m, { from: "me", text: q }]); setInput("");
     const l = local(q.toLowerCase());
