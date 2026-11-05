@@ -711,37 +711,91 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
     } catch { setMsgs((m) => [...m, { from: "ai", text: "Connection dropped. Try again." }]); setState("idle"); }
   };
 
-  const mic = async () => {
-    if (state === "listening") { rec.current?.stop(); return; }
-    stopVoice();
+  // Voice mode: hold the mic — the frame opens, the student talks, release sends. Slide up cancels.
+  const finishHold = async (chunks: Blob[], mime: string) => {
+    cancelAnimationFrame(rafId.current);
+    stream.current?.getTracks().forEach((t) => t.stop());
+    stream.current = null; rec.current = null;
+    const cancelled = voiceRef.current === "cancel";
+    voiceRef.current = "off"; setVoice("off");
+    if (cancelled) return;
+    const blob = new Blob(chunks, { type: mime });
+    if (blob.size < 2000) { toast("Too short — hold the mic and speak."); return; }
+    setState("thinking");
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream); const chunks: Blob[] = [];
-      mr.ondataavailable = (e) => chunks.push(e.data);
-      mr.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        setState("thinking");
-        const blob = new Blob(chunks, { type: mr.mimeType || "audio/webm" });
-        const buf = new Uint8Array(await blob.arrayBuffer());
-        let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-        try {
-          const { text } = await transcribe({ data: { audio: btoa(bin), mime: blob.type } });
-          setState("idle");
-          // Show the words in the box first so the student can fix them before sending.
-          if (text) { setInput((v) => (v ? `${v} ${text}` : text)); setTimeout(() => box.current?.focus(), 50); }
-          else toast("Didn't catch that — try again.");
-        } catch { setState("idle"); toast.error("Voice failed — check your connection."); }
+      const { text } = await transcribe({ data: { audio: btoa(bin), mime } });
+      // Voice mode sends straight away — no typing needed.
+      if (text) void send(text);
+      else { setState("idle"); toast("Didn't catch that — hold the mic and try again."); }
+    } catch { setState("idle"); toast.error("Voice failed — check your connection."); }
+  };
+
+  const startHold = async (y: number) => {
+    startY.current = y;
+    released.current = false;
+    voiceRef.current = "rec"; setVoice("rec");
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.current = s;
+      const actx = new AudioContext();
+      void actx.resume();
+      const an = actx.createAnalyser();
+      an.fftSize = 64;
+      actx.createMediaStreamSource(s).connect(an);
+      const data = new Uint8Array(an.frequencyBinCount);
+      const tick = () => {
+        an.getByteFrequencyData(data);
+        for (let i = 0; i < bars.current.length; i++) {
+          const b = bars.current[i];
+          if (b) b.style.transform = `scaleY(${0.15 + (data[(i * 2) % data.length]! / 255) * 0.85})`;
+        }
+        rafId.current = requestAnimationFrame(tick);
       };
-      rec.current = mr; mr.start(); setState("listening");
-      setTimeout(() => mr.state === "recording" && mr.stop(), 12000);
-    } catch { toast.error("Allow microphone access to talk to Nexus."); }
+      tick();
+      const mr = new MediaRecorder(s);
+      const chunks: Blob[] = [];
+      mr.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      mr.onstop = () => { actx.close().catch(() => undefined); void finishHold(chunks, mr.mimeType || "audio/webm"); };
+      rec.current = mr;
+      mr.start();
+      if (released.current) mr.stop(); // released before the mic opened — the tiny clip is filtered as too short
+      setTimeout(() => { if (rec.current === mr && mr.state === "recording") mr.stop(); }, 15000);
+    } catch {
+      voiceRef.current = "off"; setVoice("off");
+      toast.error("Allow microphone access to talk to Nexus.");
+    }
+  };
+
+  const onHoldMove = (e: { clientY: number }) => {
+    if (voiceRef.current === "rec" && startY.current - e.clientY > 90) { voiceRef.current = "cancel"; setVoice("cancel"); }
+  };
+  const endHold = () => {
+    released.current = true;
+    if (rec.current?.state === "recording") rec.current.stop();
   };
 
   const label = { idle: "Tap the mic and talk", listening: "Listening… tap to send", thinking: "Thinking…", voice: "Preparing voice… please wait", speaking: "Speaking…" }[state];
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 backdrop-blur-sm animate-fade sm:items-center sm:p-4" onClick={onClose}>
-      <div className="card-solid flex h-[88dvh] w-full max-w-2xl flex-col rounded-t-[2rem] sm:h-[86dvh] sm:rounded-[2rem]" onClick={(e) => e.stopPropagation()}>
+      <div className="card-solid relative flex h-[88dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-[2rem] sm:h-[86dvh] sm:rounded-[2rem]" onClick={(e) => e.stopPropagation()}>
+        {/* Voice mode frame: hold the mic, the bars dance with the student's voice, release sends. */}
+        {voice !== "off" && (
+          <div className="absolute inset-0 z-20 flex animate-fade flex-col items-center justify-between bg-graphite/95 px-6 pb-10 pt-16">
+            <p className={`text-center text-sm font-medium ${voice === "cancel" ? "text-destructive" : "text-muted-foreground"}`}>{voice === "cancel" ? "Release to cancel" : "Release to send · slide up to cancel"}</p>
+            <div aria-hidden className="flex h-24 items-center gap-[3px]">
+              {Array.from({ length: 34 }, (_, i) => (
+                <span key={i} ref={(el) => { bars.current[i] = el; }} className="h-14 w-[3px] origin-center rounded-full bg-primary will-change-transform" style={{ transform: "scaleY(0.15)" }} />
+              ))}
+            </div>
+            <div className="flex flex-col items-center gap-3">
+              <NexusOrb size={46} />
+              <p className="busy-glow text-sm font-semibold text-primary">Listening — speak now</p>
+            </div>
+          </div>
+        )}
         <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border px-4">
           <NexusOrb size={38} />
           <div className="min-w-0 flex-1 leading-tight">
