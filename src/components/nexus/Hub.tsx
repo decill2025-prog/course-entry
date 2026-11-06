@@ -44,11 +44,14 @@ export function unlockVoice() {
   } catch { unlocked = false; }
 }
 
+let voiceToken = 0;
 async function playVoice(text: string, onEnd?: () => void): Promise<boolean> {
   stopVoice();
+  const my = ++voiceToken; // only the newest request may play — never two voices at once
   if (!navigator.onLine) return speakOffline(text, onEnd, ac);
   try {
     const { audio, mime } = await speak({ data: { text } });
+    if (my !== voiceToken) return true; // a newer tap replaced this one
     if (audio) {
       // The tap that started this is long gone, so play through the AudioContext unlocked on tap (mobile autoplay policy).
       if (unlocked && ac) {
@@ -70,10 +73,10 @@ async function playVoice(text: string, onEnd?: () => void): Promise<boolean> {
       await a.play();
       return true;
     }
-  } catch { /* fall through to offline voice */ }
-  return speakOffline(text, onEnd);
+  } catch { /* online voice failed */ }
+  return my === voiceToken && kittenReady() ? speakOffline(text, onEnd, ac) : false;
 }
-const stopVoice = () => { try { node?.stop(); } catch { /* already stopped */ } node = null; player?.pause(); player = null; stopKitten(); };
+const stopVoice = () => { voiceToken++; try { node?.stop(); } catch { /* already stopped */ } node = null; player?.pause(); player = null; stopKitten(); };
 
 async function sharePost(id: string, title: string) {
   const url = `${window.location.origin}/?post=${id}`;
@@ -297,7 +300,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
         setAiPosts(merged);
       }
       // One fresh AI lesson per day per device — never generate on every visit, so the AI budget lasts.
-      if (!postedToday(new Date(), merged) && merged.length < 6) void writeMore(SESSION_BATCH);
+      if (!postedToday(new Date(), merged)) void writeMore(1);
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -319,6 +322,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
 
   const listen = async (l: Lesson) => {
     if (playing === l.id || loadingVoice === l.id) { stopVoice(); setPlaying(null); setLoadingVoice(null); return; }
+    unlockVoice(); // inside the tap, so the phone lets the voice play the moment it arrives
     setLoadingVoice(l.id); setPlaying(null);
     if (!navigator.onLine && !kittenReady()) toast("Preparing offline voice — first time takes a moment.");
     try {
@@ -647,7 +651,11 @@ function Switcher({ profile, onClose, onSave, onExit }: { profile: Profile; onCl
 type Msg = { from: "ai" | "me"; text: string; fresh?: boolean };
 
 function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { lessons: Lesson[]; course: string; level: Level; faculty: string; onClose: () => void; onOpen: (id: string) => void; onNote: (n: string) => void }) {
-  const [msgs, setMsgs] = useState<Msg[]>([{ from: "ai", text: `I'm Nexus, your ${course} coursemate. Ask me any topic and I'll explain it simply, or tap the mic.` }]);
+  const chatKey = `nexus.chat.${course}`;
+  const [msgs, setMsgs] = useState<Msg[]>(() => {
+    try { const m = JSON.parse(localStorage.getItem(chatKey) || "null") as Msg[] | null; if (m?.length) return m.map((x) => ({ ...x, fresh: false })); } catch { /* ignore */ }
+    return [{ from: "ai", text: `I'm Nexus, your ${course} coursemate. Ask me any topic and I'll explain it simply, or tap the mic.` }];
+  });
   const [input, setInput] = useState("");
   const [state, setState] = useState<"idle" | "thinking" | "voice" | "speaking">("idle");
   const [voice, setVoice] = useState<"off" | "rec" | "cancel">("off");
@@ -661,8 +669,6 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
   const end = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { const el = box.current; if (!el) return; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 180)}px`; }, [input]);
-  const chatKey = `nexus.chat.${course}`;
-  useEffect(() => { try { const m = JSON.parse(localStorage.getItem(chatKey) || "null") as Msg[] | null; if (m?.length) setMsgs(m.map((x) => ({ ...x, fresh: false }))); } catch { /* ignore */ } }, [chatKey]);
   useEffect(() => { try { localStorage.setItem(chatKey, JSON.stringify(msgs.slice(-40).map(({ from, text }) => ({ from, text })))); } catch { /* ignore */ } }, [msgs, chatKey]);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs, state]);
   useEffect(() => () => {
@@ -720,7 +726,7 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
     voiceRef.current = "off"; setVoice("off");
     if (cancelled) return;
     const blob = new Blob(chunks, { type: mime });
-    if (blob.size < 2000) { toast("Too short — hold the mic and speak."); return; }
+    if (blob.size < 2000) { toast("Too short — tap the mic and speak a full sentence."); return; }
     setState("thinking");
     const buf = new Uint8Array(await blob.arrayBuffer());
     let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
@@ -728,7 +734,7 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
       const { text } = await transcribe({ data: { audio: btoa(bin), mime } });
       // Voice mode sends straight away — no typing needed.
       if (text) void send(text);
-      else { setState("idle"); toast("Didn't catch that — hold the mic and try again."); }
+      else { setState("idle"); toast("Didn't catch that — tap the mic and try again."); }
     } catch { setState("idle"); toast.error("Voice failed — check your connection."); }
   };
 
@@ -760,17 +766,14 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
       mr.onstop = () => { actx.close().catch(() => undefined); void finishHold(chunks, mr.mimeType || "audio/webm"); };
       rec.current = mr;
       mr.start();
-      if (released.current) mr.stop(); // released before the mic opened — the tiny clip is filtered as too short
-      setTimeout(() => { if (rec.current === mr && mr.state === "recording") mr.stop(); }, 15000);
+      if (released.current) mr.stop();
+      setTimeout(() => { if (rec.current === mr && mr.state === "recording") mr.stop(); }, 30000);
     } catch {
       voiceRef.current = "off"; setVoice("off");
       toast.error("Allow microphone access to talk to Nexus.");
     }
   };
 
-  const onHoldMove = (e: { clientY: number }) => {
-    if (voiceRef.current === "rec" && startY.current - e.clientY > 90) { voiceRef.current = "cancel"; setVoice("cancel"); }
-  };
   const endHold = () => {
     released.current = true;
     if (rec.current?.state === "recording") rec.current.stop();
@@ -784,7 +787,7 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
         {/* Voice mode frame: hold the mic, the bars dance with the student's voice, release sends. */}
         {voice !== "off" && (
           <div className="absolute inset-0 z-20 flex animate-fade flex-col items-center justify-between bg-graphite/95 px-6 pb-10 pt-16">
-            <p className={`text-center text-sm font-medium ${voice === "cancel" ? "text-destructive" : "text-muted-foreground"}`}>{voice === "cancel" ? "Release to cancel" : "Release to send · slide up to cancel"}</p>
+            <p className={`text-center text-sm font-medium ${voice === "cancel" ? "text-destructive" : "text-muted-foreground"}`}>{voice === "cancel" ? "Cancelling…" : "Speak now · tap send when you finish"}</p>
             <div aria-hidden className="flex h-24 items-center gap-[3px]">
               {Array.from({ length: 34 }, (_, i) => (
                 <span key={i} ref={(el) => { bars.current[i] = el; }} className="h-14 w-[3px] origin-center rounded-full bg-primary will-change-transform" style={{ transform: "scaleY(0.15)" }} />
@@ -793,6 +796,10 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
             <div className="flex flex-col items-center gap-3">
               <NexusOrb size={46} />
               <p className="busy-glow text-sm font-semibold text-primary">Listening — speak now</p>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => { voiceRef.current = "cancel"; setVoice("cancel"); endHold(); }} style={{ WebkitTouchCallout: "none" }} className="select-none rounded-full border border-border px-5 py-3 text-sm font-semibold">Cancel</button>
+                <button type="button" onClick={endHold} style={{ WebkitTouchCallout: "none" }} className="select-none rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground">Tap to send</button>
+              </div>
             </div>
           </div>
         )}
@@ -834,14 +841,12 @@ function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { l
             <div className="mt-1 flex items-center justify-between">
               <button
                 type="button"
-                aria-label={voice === "off" ? "Hold to talk" : "Release to send"}
-                onPointerDown={(e) => { if (state === "thinking" || voice !== "off") return; e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); unlockVoice(); void startHold(e.clientY); }}
-                onPointerMove={onHoldMove}
-                onPointerUp={endHold}
-                onPointerCancel={endHold}
-                className={`flex h-10 shrink-0 touch-none select-none items-center gap-2 rounded-full px-3 text-sm font-medium ${voice !== "off" ? "bg-primary text-primary-foreground" : "bg-secondary hover:bg-secondary/70"}`}
+                aria-label="Tap to talk"
+                onClick={() => { if (state === "thinking" || voice !== "off") return; unlockVoice(); void startHold(0); }}
+                style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
+                className="flex h-10 shrink-0 select-none items-center gap-2 rounded-full bg-secondary px-3 text-sm font-medium hover:bg-secondary/70"
               >
-                <Mic className="h-4 w-4" /> {voice !== "off" ? "Recording" : "Hold to talk"}
+                <Mic className="h-4 w-4" /> Tap to talk
               </button>
               <button type="submit" disabled={!input.trim() || state === "thinking"} aria-label="Send" className="grid h-10 w-10 place-items-center rounded-full bg-primary text-primary-foreground disabled:opacity-40"><Send className="h-4 w-4" /></button>
             </div>
@@ -865,7 +870,7 @@ function Quiz({ lesson, level, onClose }: { lesson: Lesson; level: Level; onClos
     try {
       const r = await makeQuiz({ data: { title: lesson.title, code: lesson.code, body: `${lesson.body}\nTrick: ${lesson.trick}\nTrap: ${lesson.trap}`, level, difficulty: d } });
       if (r.questions.length) setQs(r.questions);
-      else setErr(r.error === "busy" ? "Many students are practising now. Try again in a few seconds." : r.error === "credits" ? "Quiz maker is resting for today. Try again later." : "Couldn't build this quiz. Tap a level to try again.");
+      else setErr(r.error === "busy" ? "Many students are practising now. Try again in a few seconds." : "Couldn't build this quiz. Tap a level to try again.");
     } catch { setErr("Connection dropped. Tap a level to try again."); }
   };
   const q = qs?.[i];

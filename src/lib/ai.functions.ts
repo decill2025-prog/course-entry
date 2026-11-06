@@ -29,6 +29,14 @@ export function speechText(t: string): string {
   return t.replace(/```[\s\S]*?```/g, " I dropped the code on your screen. ").replace(/[ \t]+/g, " ").trim();
 }
 
+/** Text the voice can read smoothly: no symbols, slashes, abbreviations or lists. */
+export function speakable(t: string): string {
+  return cleanText(t)
+    .replace(/\be\.g\.?/gi, "for example").replace(/\bi\.e\.?/gi, "that is").replace(/\betc\.?/gi, "and so on")
+    .replace(/\s*\/\s*/g, " or ").replace(/&/g, " and ").replace(/[\[\]{}()<>|~^_=+]/g, " ")
+    .replace(/\n+/g, ". ").replace(/\.\s*\./g, ".").replace(/\s+/g, " ").trim();
+}
+
 /** True for plain greetings like "hi", "hello", "good morning", "how far". */
 export function isGreeting(q: string): boolean {
   const s = q.toLowerCase().replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
@@ -194,34 +202,27 @@ export const getShared = createServerFn({ method: "POST" })
 
 export type QuizQ = { q: string; options: string[]; answer: number; why: string };
 
-/** Practice quiz for one lesson, written by the Lovable AI Gateway. */
+/** Practice quiz for one lesson: Groq key pool, then CleanAPIs. Works on every domain (no Lovable gateway). */
 export const makeQuiz = createServerFn({ method: "POST" })
   .inputValidator((d: { title: string; code: string; body: string; level: string; difficulty: string }) => ({
     title: String(d.title).slice(0, 120), code: String(d.code).slice(0, 12), body: String(d.body).slice(0, 2000),
     level: String(d.level).slice(0, 20), difficulty: ["easy", "medium", "hard"].includes(d.difficulty) ? d.difficulty : "medium",
   }))
   .handler(async ({ data }) => {
-    const { generateResponse, GatewayError } = await import("@lovable.dev/ai-gateway");
     const level = { easy: "simple recall of the main idea", medium: "a typical university test question that applies the idea", hard: "a tricky past-question style item built around the common exam trap" }[data.difficulty];
     try {
-      const res = await generateResponse({
-        model: "openai/gpt-6-astra",
-        instructions: `You set practice questions for ${data.level} Nigerian university students. Write exactly 4 multiple-choice questions on the lesson. Difficulty: ${level}. Each has 4 short options and one correct answer. The explanation is 1-2 plain sentences saying why the answer is right and why the tempting wrong one is wrong. Plain text, no markdown. Reply ONLY with JSON: {"questions":[{"q":"...","options":["a","b","c","d"],"answer":0,"why":"..."}]}`,
-        input: `${data.code}: ${data.title}\n\n${data.body}`,
-      });
-      let text = "";
-      for (const item of res.output ?? []) {
-        if (item.type === "message") for (const c of item.content) if (c.type === "output_text") text += c.text;
-      }
+      const text = await chat(groqKeys(), process.env["CLEANAPIS_API_KEY"], [
+        { role: "system", content: `You set practice questions for ${data.level} Nigerian university students. Write exactly 4 multiple-choice questions on the lesson. Difficulty: ${level}. Each has 4 short options and one correct answer (index 0-3). The explanation is 1-2 plain sentences. Plain text, no markdown. Reply ONLY with JSON: {"questions":[{"q":"...","options":["a","b","c","d"],"answer":0,"why":"..."}]}` },
+        { role: "user", content: `${data.code}: ${data.title}\n\n${data.body}` },
+      ], { json: true, max: 1200 });
+      if (!text) return { questions: [] as QuizQ[], error: "busy" as "busy" | "empty" | "failed" | null };
       const j = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as { questions?: QuizQ[] };
       const qs = (j.questions ?? []).filter((q) => q.q && Array.isArray(q.options) && q.options.length >= 2 && typeof q.answer === "number").slice(0, 5)
         .map((q) => ({ q: cleanText(q.q), options: q.options.map((o) => cleanText(String(o))).slice(0, 4), answer: Math.max(0, Math.min(3, q.answer)), why: cleanText(String(q.why ?? "")) }));
       return { questions: qs, error: qs.length ? null : "empty" };
     } catch (e) {
-      if (e instanceof GatewayError) console.error("quiz", e.code, e.httpStatus);
-      else console.error("quiz", e);
-      const msg = e instanceof GatewayError && e.httpStatus === 429 ? "busy" : e instanceof GatewayError && e.httpStatus === 402 ? "credits" : "failed";
-      return { questions: [] as QuizQ[], error: msg };
+      console.error("quiz", e);
+      return { questions: [] as QuizQ[], error: "failed" };
     }
   });
 
@@ -259,16 +260,16 @@ export const transcribe = createServerFn({ method: "POST" })
 
 /** Text-to-speech: Deepgram Aura-2 → second Deepgram voice → Microsoft neural. Never Groq, never browser. */
 export const speak = createServerFn({ method: "POST" })
-  .inputValidator((d: { text: string }) => ({ text: cleanText(String(d.text ?? "")).slice(0, 900) }))
+  .inputValidator((d: { text: string }) => ({ text: speakable(String(d.text ?? "")).slice(0, 600) }))
   .handler(async ({ data }) => {
     const none = { audio: null as string | null, mime: "audio/mpeg" };
     if (!data.text) return none;
     const dg = process.env["DEEPGRAM_API_KEY"];
     if (dg) {
-      for (const model of ["aura-2-thalia-en", "aura-2-andromeda-en", "aura-asteria-en"]) {
+      for (const model of ["aura-2-thalia-en", "aura-asteria-en"]) {
         try {
           const res = await fetch(`https://api.deepgram.com/v1/speak?model=${model}&encoding=mp3`, {
-            method: "POST", signal: AbortSignal.timeout(6000),
+            method: "POST", signal: AbortSignal.timeout(4000),
             headers: { Authorization: `Token ${dg}`, "Content-Type": "application/json" },
             body: JSON.stringify({ text: data.text }),
           });

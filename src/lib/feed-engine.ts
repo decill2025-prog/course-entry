@@ -19,11 +19,6 @@ export function savePosts(level: Level, course: string, posts: StoredPost[]) {
   try { localStorage.setItem(key(level, course), JSON.stringify(posts.slice(0, 60))); } catch { /* storage full: keep in memory */ }
 }
 
-function deviceSeed(): number {
-  let s = localStorage.getItem("nexus.seed");
-  if (!s) { s = String(Math.floor(Math.random() * 1e9)); localStorage.setItem("nexus.seed", s); }
-  return Number(s);
-}
 
 /** Budget check: returns how many more posts this device may generate today. */
 export function remainingToday(now = new Date()): number {
@@ -45,11 +40,11 @@ export function postedToday(now = new Date(), posts: { at: number }[]): boolean 
   return posts.some((p) => new Date(p.at).toDateString() === day);
 }
 
-/** Next unused topic, rotated by a per-device seed so different students get different posts. */
-export function nextTopic(level: Level, course: string, faculty: string, used: Set<string>) {
+/** Today's topic: moves forward one scheme-of-work topic per calendar day, same for every coursemate; skips topics already saved. */
+export function nextTopic(level: Level, course: string, faculty: string, used: Set<string>, now = new Date()) {
   const all = topicsFor(level, course, faculty);
   if (!all.length) return null;
-  const start = deviceSeed() % all.length;
+  const start = Math.floor(now.getTime() / 86400000) % all.length;
   for (let i = 0; i < all.length; i++) {
     const t = all[(start + i) % all.length]!;
     if (!used.has(`${t.code}:${t.topic}`)) return t;

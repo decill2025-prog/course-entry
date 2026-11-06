@@ -19,6 +19,8 @@ export default defineConfig({
         devOptions: { enabled: false },
         filename: "sw.js",
         manifest: false,
+        // Write the worker next to the site files so every host (Lovable, Vercel/Itoka) serves it at /sw.js.
+        outDir: "dist/client",
         workbox: {
           // SSR app: no static index.html, so the visited "/" page is cached at runtime and served on offline reloads.
           // Precache the SSR "/" shell at install (new revision each build) so any offline reload opens Nexus.
@@ -27,6 +29,7 @@ export default defineConfig({
           navigateFallbackDenylist: [/^\/~oauth/, /^\/_serverFn/, /^\/api\//],
           clientsClaim: true,
           skipWaiting: true,
+          modifyURLPrefix: { "client/": "/" },
           globPatterns: ["**/*.{js,css,png,jpg,svg,woff2,webmanifest}"],
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           runtimeCaching: [

@@ -17,7 +17,6 @@ export function Gate({ onEnter }: Props) {
   const [course, setCourse] = useState("");
   const [open, setOpen] = useState<"level" | "course" | null>(null);
   const [q, setQ] = useState("");
-  const [agree, setAgree] = useState(false);
   const [loading, setLoading] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useOutside(box, () => setOpen(null));
@@ -26,7 +25,7 @@ export function Gate({ onEnter }: Props) {
     () => COURSES.filter((c) => c.name.toLowerCase().includes(q.toLowerCase())),
     [q],
   );
-  const ready = level && course && agree && !loading;
+  const ready = level && course && !loading;
 
   const enter = () => {
     if (!ready) return;
@@ -95,10 +94,6 @@ export function Gate({ onEnter }: Props) {
             )}
           </div>
 
-          <label className="flex cursor-pointer items-start gap-2.5 pt-1 text-xs text-muted-foreground">
-            <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--primary)]" />
-            I agree to use Nexus respectfully and follow FUTES student policy.
-          </label>
 
           <button
             type="button"
