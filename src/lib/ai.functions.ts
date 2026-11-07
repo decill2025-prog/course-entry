@@ -112,8 +112,9 @@ export const askJarvis = createServerFn({ method: "POST" })
     const tech = /computer|software|cyber|data|information|informatics|telecom|electr|mechatron|robotic|artificial|machine learn|statistics/i.test(data.course);
     const system = `You are Nexus, a warm senior coursemate at FUTES (Federal University of Technology and Environmental Sciences), Iyin-Ekiti, Nigeria. The student is ${data.level}, studying ${data.course}. Your answers are read on screen AND spoken aloud, so write the way a clear teacher talks.
 First, answer exactly what the student said. If it is small talk, a thank-you or a question about you, reply naturally in one or two friendly sentences and ask what topic they want help with. Never start a lesson they did not ask for.
-When they ask about a topic: short sentences under 15 words. Start with one everyday Nigerian picture (danfo, suya, NEPA light, market, hostel). Give the plain rule in one or two sentences. Add one vivid memory hook, never a forced acronym. End with the one exam mistake to avoid. Under 110 words.
+When they ask about a topic: short, clear sentences under 15 words. State the core concept clearly and directly in standard academic English. If an analogy helps, use an accurate physical, biological, or logical analogy (like how gravity pulls or how gates open), never forced street slang, vehicles, or food tropes. Give the plain rule in one or two sentences. Add one vivid, logical memory hook. End with the exact exam mistake lecturers look for and how to avoid it. Under 110 words.
 Always plain text: no asterisks, hashtags, bullet symbols or emojis. Explain any technical word the moment you use it.${tech ? `\nWhen the student asks you to write, show or explain code, include one short working example in a fenced code block with the language, like \`\`\`python\\ncode here\\n\`\`\`. Twenty lines maximum, real and runnable, with short comments. After the block add one plain sentence saying how it works and what to change to practise. Only use code when they ask for it; never speak the code aloud.` : ""}`;
+
     const text = await chat(groqKeys(), process.env["CLEANAPIS_API_KEY"], [{ role: "system", content: system }, ...data.history, { role: "user", content: data.question }]);
     const clean = text ? cleanChat(text) : null;
     return { text: clean, error: clean ? null : "busy" };
@@ -122,11 +123,11 @@ Always plain text: no asterisks, hashtags, bullet symbols or emojis. Explain any
 export type AIPost = { title: string; hook: string; body: string; steps: string[]; example: string; trick: string; trap: string; points: string[]; say: string };
 
 const POST_RULES = `Teaching style (this is what makes students understand in one go):
-1. Picture first: open with a concrete Nigerian everyday scene the student already knows (danfo bus, suya spot, NEPA light, borehole, market woman, hostel, generator). Map each part of the topic to a part of that scene.
-2. Then the real definition in plain words. Short sentences under 15 words. Explain every technical word right away.
-3. One small worked example with real numbers or a real case.
-4. Memory hook: a vivid, funny or physical image or a short rhyme that makes sense in normal English. Never a forced acronym, never broken English, never "IF-ELSE I FINE".
-5. Exam trap: the exact mistake lecturers catch, and how to avoid it.
+1. Core definition first: state the fundamental concept clearly and directly in standard academic English. Short sentences under 15 words. Explain every technical term immediately. Never force street slang, danfo, suya, or informal market analogies.
+2. Clear mechanism: explain step-by-step how and why it works using natural, accurate examples relevant to their field of study.
+3. One small worked example with real numbers, realistic code, or an authentic case study.
+4. Memory hook: a vivid logical image, practical association, or short clear rule that makes sense in proper English. Never a forced acronym or broken English.
+5. Exam trap: the exact mistake lecturers catch in exams, and the clear rule to avoid it.
 Plain text only. No asterisks, hashtags, emojis or markdown.`;
 
 /** Writes one scheme-of-work lesson post and stores it in the shared library so every domain sees it. */
@@ -139,12 +140,14 @@ export const generatePost = createServerFn({ method: "POST" })
     const none = { post: null as AIPost | null, id: null as string | null };
     const system = `You write lesson posts for FUTES Nexus, a study feed for Nigerian university students, following the NUC CCMAS scheme of work. The reader is a ${data.level} ${data.course} student who finds this topic hard. Stay strictly on the given course code and topic, but frame every picture, example and use-case around what a ${data.course} student will actually do in that career, so students of other departments taking the same course get a different angle.
 ${POST_RULES}
-Reply ONLY with JSON: {"title": catchy title max 8 words, "hook": one sentence on why this matters in real life, "body": 150-220 words in 3 short paragraphs separated by \n\n (picture, plain rule, why it works), "steps": 3-5 short steps, "example": one worked example max 70 words, "trick": the memory hook, "trap": the exam mistake and the fix, "points": exactly 3 key points max 8 words each, "say": a 40-60 word spoken summary a friend would say out loud (picture, rule, hook)}.`;
+Reply ONLY with JSON: {"title": catchy title max 8 words, "hook": one sentence on why this matters in real life, "body": 150-220 words in 3 short paragraphs separated by \n\n (core concept, plain rule, why it works), "steps": 3-5 short steps, "example": one worked example max 70 words, "trick": the memory hook, "trap": the exam mistake and the fix, "points": exactly 3 key points max 8 words each, "say": a 40-60 word spoken summary a coursemate would say out loud (core concept, rule, memory hook)}.`;
+
     const raw = await chat(groqKeys(), process.env["CLEANAPIS_API_KEY"], [
       { role: "system", content: system },
       { role: "user", content: `${data.code} ${data.courseTitle} — topic: ${data.topic}` },
     ], { json: true, max: 1400 });
     if (!raw) return none;
+
     let post: AIPost;
     try {
       const j = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)) as Partial<AIPost>;
@@ -153,11 +156,13 @@ Reply ONLY with JSON: {"title": catchy title max 8 words, "hook": one sentence o
       const c = (v: unknown) => cleanText(String(v ?? ""));
       post = { title: c(j.title), hook: c(j.hook), body: c(j.body), steps: arr(j.steps), example: c(j.example), trick: c(j.trick), trap: c(j.trap), points: arr(j.points), say: c(j.say) };
     } catch { return none; }
+
     const id = `ai-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     try {
       const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
       await supabaseAdmin.from("nexus_posts").upsert({ id, level: data.level, course: data.course, code: data.code, topic: data.topic, payload: { ...post, courseTitle: data.courseTitle } }, { onConflict: "level,course,code,topic", ignoreDuplicates: true });
     } catch (e) { console.error("save post", e); }
+
     return { post, id };
   });
 
