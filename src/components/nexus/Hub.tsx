@@ -15,7 +15,7 @@ export type Profile = { level: Level; course: string; faculty: string };
 const ICONS: Record<Icon, typeof Cpu> = { cpu: Cpu, flask: FlaskConical, atom: Atom, sigma: Sigma, book: BookOpen, cog: Cog, building: Building2, dna: Dna };
 const NEWS_ID = "futes-news";
 const NEWS = {
-  title: "New student guide: what to bring for physical registration",
+  title: "To the freshers: what to bring for registration",
   short: "Welcome to FUTES Iyin-Ekiti. Starting physical registration for 2026/2027? Here is what students are usually asked to bring.",
   full: [
     "Congratulations on your admission into the Federal University of Technology and Environmental Sciences, Iyin-Ekiti.",
@@ -48,74 +48,173 @@ let voiceToken = 0;
 async function playVoice(text: string, onEnd?: () => void): Promise<boolean> {
   stopVoice();
   const my = ++voiceToken; // only the newest request may play — never two voices at once
+  if (!navigator.onLine) return speakOffline(text, onEnd, ac);
   try {
-    if (!navigator.onLine || !unlocked) {
-      if (kittenReady()) return speakOffline(text, onEnd);
-    }
-    const clean = speechText(text);
-    const r = await speak({ data: { text: clean } });
-    if (my !== voiceToken) return false;
-    if (r.audio) {
-      player = new Audio(`data:${r.mime};base64,${r.audio}`);
-      player.onended = () => { if (my === voiceToken) { player = null; onEnd?.(); } };
-      player.onerror = () => { if (my === voiceToken) { player = null; onEnd?.(); } };
-      await player.play();
+    const { audio, mime } = await speak({ data: { text } });
+    if (my !== voiceToken) return true; // a newer tap replaced this one
+    if (audio) {
+      // The tap that started this is long gone, so play through the AudioContext unlocked on tap (mobile autoplay policy).
+      if (unlocked && ac) {
+        const bin = atob(audio);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const buf = await ac.decodeAudioData(bytes.buffer as ArrayBuffer);
+        const n = ac.createBufferSource();
+        n.buffer = buf;
+        n.connect(ac.destination);
+        n.onended = () => onEnd?.();
+        n.start();
+        node = n;
+        return true;
+      }
+      const a = new Audio(`data:${mime};base64,${audio}`);
+      player = a;
+      a.onended = () => onEnd?.();
+      await a.play();
       return true;
     }
-  } catch { /* network / server issue */ }
-  if (my === voiceToken && kittenReady()) return speakOffline(text, onEnd);
-  return false;
+  } catch { /* online voice failed */ }
+  return my === voiceToken && kittenReady() ? speakOffline(text, onEnd, ac) : false;
+}
+const stopVoice = () => { voiceToken++; try { node?.stop(); } catch { /* already stopped */ } node = null; player?.pause(); player = null; stopKitten(); };
+
+async function sharePost(id: string, title: string) {
+  const url = `${window.location.origin}/?post=${id}`;
+  const text = `${title} — on FUTES Nexus`;
+  try { if (navigator.share) { await navigator.share({ title, text, url }); return; } }
+  catch (e) { if ((e as Error).name === "AbortError") return; }
+  try { await navigator.clipboard.writeText(`${text}\n${url}`); toast.success("Link copied — paste it in your class group"); }
+  catch { window.open(`https://wa.me/?text=${encodeURIComponent(`${text}\n${url}`)}`, "_blank"); }
 }
 
-function stopVoice() {
-  voiceToken++;
-  if (player) {
-    try { player.pause(); player.src = ""; } catch { /* ignore */ }
-    player = null;
+function Avatar({ gold, faculty, size = 40 }: { gold?: boolean | undefined; faculty?: string | undefined; size?: number }) {
+  const src = gold ? "/futes-crest.jpg" : `/ai/${faculty ? groupOf(faculty) : "general"}.jpg`;
+  return <img src={src} alt="" width={size} height={size} style={{ width: size, height: size }} className={`shrink-0 rounded-full object-cover ring-2 ${gold ? "ring-gold" : "ring-primary/70"}`} />;
+}
+
+const HUES = [205, 258, 300, 340, 20, 55, 95, 150, 185];
+/** Course name with every letter in a different colour (AI profile identity). */
+function CourseName({ name }: { name: string }) {
+  return <>{[...name].map((ch, i) => <span key={i} style={{ color: ch === " " ? undefined : `oklch(0.78 0.16 ${HUES[i % HUES.length]})` }}>{ch}</span>)}</>;
+}
+function timeAgo(at: number) {
+  const m = Math.max(1, Math.round((Date.now() - at) / 60000));
+  return m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`;
+}
+
+function Author({ gold, faculty, name, meta }: { gold?: boolean | undefined; faculty?: string | undefined; name: ReactNode; meta: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <Avatar gold={gold} faculty={faculty} />
+      <div className="min-w-0">
+        <p className="flex items-center gap-1 text-[15px] font-semibold leading-tight">
+          <span className="truncate">{name}</span>
+          <BadgeCheck className={`h-4 w-4 shrink-0 ${gold ? "fill-gold text-graphite" : "fill-primary text-primary-foreground"}`} aria-label="Verified" />
+        </p>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">{meta}</p>
+      </div>
+    </div>
+  );
+}
+
+const fromShared = (r: SharedPost): StoredPost => toStored(r.payload, { code: r.code, courseTitle: r.payload.courseTitle ?? r.code, topic: r.topic }, r.id, Date.parse(r.created_at) || Date.now());
+
+function Visual({ l, hideTitle }: { l: Lesson; hideTitle?: boolean }) {
+  const I = ICONS[l.icon];
+  return (
+    <div className="relative aspect-square overflow-hidden" style={{ background: `radial-gradient(circle at 75% 20%, oklch(0.62 0.2 ${l.hue}), oklch(0.22 0.07 ${l.hue + 25}) 72%)` }}>
+      <div className="absolute inset-0 opacity-20 [background-image:linear-gradient(oklch(1_0_0/14%)_1px,transparent_1px),linear-gradient(90deg,oklch(1_0_0/14%)_1px,transparent_1px)] [background-size:28px_28px]" />
+      <I className="absolute -right-6 -top-6 h-48 w-48 text-foreground/15" strokeWidth={1} />
+      <div className="absolute inset-x-5 top-5 flex items-center justify-between">
+        <span className="rounded-full bg-background/70 px-3 py-1 font-mono text-xs font-semibold">{l.code}</span>
+        <span className="text-xs font-medium text-foreground/80">{l.tag}</span>
+      </div>
+      <div className="absolute inset-x-5 bottom-5">
+        {!hideTitle && <p className="font-display text-2xl font-bold leading-tight sm:text-3xl">{l.title}</p>}
+        <div className="mt-3 flex items-start gap-2 rounded-2xl bg-background/70 p-3 text-sm">
+          <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
+          <span className="leading-snug">{l.trick}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Actions({ playing, loading, onListen, onView, onShare, viewLabel = "View" }: { playing: boolean; loading?: boolean; onListen: () => void; onView: () => void; onShare: () => void; viewLabel?: string }) {
+  const b = "flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-colors active:scale-[0.97]";
+  return (
+    <div className="grid grid-cols-3 gap-2 p-3">
+      <button onClick={onListen} className={`${b} ${playing || loading ? "bg-primary text-primary-foreground" : "bg-secondary hover:bg-secondary/70"}`}>
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : playing ? <Pause className="h-4 w-4" /> : <Headphones className="h-4 w-4" />} {loading ? "Loading…" : playing ? "Stop" : "Listen"}
+      </button>
+      <button onClick={onView} className={`${b} bg-primary/15 text-primary hover:bg-primary/25`}><Eye className="h-4 w-4" /> {viewLabel}</button>
+      <button onClick={onShare} className={`${b} bg-secondary hover:bg-secondary/70`}><Share2 className="h-4 w-4" /> Share</button>
+    </div>
+  );
+}
+
+function NexusOrb({ size }: { size: number }) {
+  return (
+    <span className="jarvis block" style={{ width: size, height: size }}>
+      <span className="jarvis-ring" style={{ inset: 3 }} />
+      <span className="jarvis-ring-rev" style={{ inset: size * 0.17 }} />
+      <span className="jarvis-core" style={{ inset: size * 0.3 }} />
+    </span>
+  );
+}
+
+const FENCE = /```([\w+#.-]*)\n?([\s\S]*?)```/g;
+
+/** A copyable code frame: dark box, language tag, one-tap copy — for software and tech students. */
+function CodeBlock({ code, lang }: { code: string; lang?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="my-2 overflow-hidden rounded-2xl border border-border bg-graphite/90">
+      <div className="flex items-center justify-between border-b border-border/70 px-3 py-1.5">
+        <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{lang || "code"}</span>
+        <button
+          onClick={() => navigator.clipboard?.writeText(code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600); }).catch(() => undefined)}
+          className={`flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-bold ${copied ? "text-emerald" : "text-primary hover:bg-primary/10"}`}
+        >
+          {copied ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="overflow-x-auto px-3 py-2.5 font-mono text-[13px] leading-relaxed text-foreground/95"><code>{code}</code></pre>
+    </div>
+  );
+}
+
+/** Prose paragraphs plus copyable code frames in one Nexus reply. */
+function RichText({ text, fresh }: { text: string; fresh?: boolean }) {
+  const out: ReactNode[] = [];
+  let last = 0, k = 0;
+  let m: RegExpExecArray | null;
+  const prose = (t: string) => (
+    <p className="whitespace-pre-wrap">
+      {fresh
+        ? t.split(/(\s+)/).map((w, j) => (/^\s+$/.test(w) ? w : <span key={j} className="word-up" style={{ animationDelay: `${Math.min(j * 22, 2200)}ms` }}>{w}</span>))
+        : t}
+    </p>
+  );
+  FENCE.lastIndex = 0;
+  while ((m = FENCE.exec(text))) {
+    if (m.index > last) out.push(<div key={k++} className="text-[16px] leading-[1.75] text-foreground/95">{prose(text.slice(last, m.index))}</div>);
+    out.push(<CodeBlock key={k++} lang={m[1] ?? ""} code={m[2]!.replace(/\n+$/, "")} />);
+    last = m.index + m[0].length;
   }
-  if (node) {
-    try { node.stop(); node.disconnect(); } catch { /* ignore */ }
-    node = null;
-  }
-  stopKitten();
+  if (last < text.length) out.push(<div key={k++} className="text-[16px] leading-[1.75] text-foreground/95">{prose(text.slice(last))}</div>);
+  return <>{out}</>;
 }
 
-function timeAgo(iso: string) {
-  const diff = Math.max(0, Date.now() - new Date(iso).getTime());
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "Just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return `${d}d ago`;
-}
-
-function fromShared(p: SharedPost): StoredPost {
-  return {
-    id: p.id,
-    code: p.code,
-    title: p.title,
-    tag: p.tag,
-    faculty: p.faculty,
-    icon: p.icon,
-    image: p.image,
-    say: p.say,
-    body: p.body,
-    points: p.points,
-    trap: p.trap,
-    memory: p.memory,
-    at: p.created_at,
-  };
-}
-
-export function Hub({ profile, onExit }: { profile: Profile; onExit: () => void }) {
+export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch: (p: Profile) => void; onExit: () => void }) {
   const [tab, setTab] = useState<"feed" | "vault">("feed");
-  const [orb, setOrb] = useState(false);
   const [view, setView] = useState<string | null>(null);
   const [news, setNews] = useState(false);
+  const [switcher, setSwitcher] = useState(false);
+  const [orb, setOrb] = useState(false);
   const [online, setOnline] = useState(true);
-  const [copied, setCopied] = useState(false);
+  const [notes, setNotes] = useState<string[]>([]);
+  const [bell, setBell] = useState(false);
   const [quiz, setQuiz] = useState<Lesson | null>(null);
   const [extra, setExtra] = useState<StoredPost | null>(null);
   const [hidden, setHidden] = useState(false);
@@ -144,47 +243,48 @@ export function Hub({ profile, onExit }: { profile: Profile; onExit: () => void 
     if (id === NEWS_ID) setNews(true);
     else if (id) {
       setView(id);
-      void getShared({ data: { id } }).then((r) => { if (r.post) setExtra(fromShared(r.post)); });
+      // Shared link from another course: fetch that one lesson from the shared library.
+      if (id.startsWith("ai-") && navigator.onLine) void getShared({ data: { id } }).then((r) => { if (r.post) setExtra(fromShared(r.post)); }).catch(() => {});
     }
-    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+    // Installed app: fetch the offline voice quietly once, so it speaks even in airplane mode.
+    if (navigator.onLine && !kittenReady() && window.matchMedia("(display-mode: standalone)").matches) {
+      const t = setTimeout(() => { void warmKitten().then(setVoiceOffline); }, 6000);
+      window.addEventListener("beforeunload", () => clearTimeout(t));
+    }
+    const sc = scroller.current;
+    let last = sc?.scrollTop ?? 0, ticking = false;
+    const onScroll = () => {
+      if (ticking) return; ticking = true;
+      requestAnimationFrame(() => {
+        const y = sc?.scrollTop ?? 0;
+        if (Math.abs(y - last) > 10) { setHidden(y > last && y > 140); last = y; }
+        ticking = false;
+      });
+    };
+    sc?.addEventListener("scroll", onScroll, { passive: true });
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); sc?.removeEventListener("scroll", onScroll); stopVoice(); };
   }, []);
 
-  const [lastY, setLastY] = useState(0);
-  const onScroll = (e: React.UIEvent<HTMLElement>) => {
-    const y = e.currentTarget.scrollTop;
-    if (y > 100 && y > lastY + 8) setHidden(true);
-    else if (y < lastY - 8 || y < 60) setHidden(false);
-    setLastY(y);
-  };
-
-  const go = (t: "feed" | "vault") => {
-    stopVoice(); setPlaying(null); setLoadingVoice(null);
-    setTab(t);
-    scroller.current?.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const writeMore = async (count = SESSION_BATCH) => {
+  // AI feed: load saved posts for this course, then write new ones one at a time (gentle on rate limits).
+  const writeMore = async (count: number) => {
     if (busy.current || !navigator.onLine) return;
     busy.current = true; setWriting(true);
     try {
       for (let i = 0; i < count && remainingToday() > 0; i++) {
         const saved = loadPosts(profile.level, profile.course);
-        if (postedToday(new Date(), saved)) break;
+        if (postedToday(new Date(), saved)) break; // one fresh lesson a day — protects the AI request budget
         const t = nextTopic(profile.level, profile.course, profile.faculty, new Set(saved.map((p) => `${p.code}:${p.tag}`)));
         if (!t) break;
         const r = await generatePost({ data: { level: profile.level, course, code: t.code, courseTitle: t.courseTitle, topic: t.topic } }).catch(() => ({ post: null }));
         if (!r.post) break;
         spendOne();
-        const p = toStored(r.post);
-        const updated = mergePosts([p], loadPosts(profile.level, profile.course));
-        savePosts(profile.level, profile.course, updated);
-        setAiPosts(updated);
+        const next = mergePosts([toStored(r.post, t, r.id ?? undefined)], saved);
+        savePosts(profile.level, profile.course, next);
+        setAiPosts(next);
+        if (i < count - 1) await new Promise((res) => setTimeout(res, 2000));
       }
-    } finally {
-      busy.current = false; setWriting(false);
-    }
+    } finally { busy.current = false; setWriting(false); }
   };
-
   useEffect(() => {
     let alive = true;
     const saved = loadPosts(profile.level, profile.course);
@@ -192,183 +292,229 @@ export function Hub({ profile, onExit }: { profile: Profile; onExit: () => void 
     void (async () => {
       let merged = saved;
       if (navigator.onLine) {
-        const r = await listShared({ data: { level: profile.level, faculty: profile.faculty, limit: 30 } }).catch(() => ({ posts: [] }));
+        // Shared library: lessons other students already unlocked — loads on every domain, costs no AI request.
+        const r = await listShared({ data: { level: profile.level, course } }).catch(() => ({ posts: [] as SharedPost[] }));
         if (!alive) return;
         merged = mergePosts(r.posts.map(fromShared), saved);
         savePosts(profile.level, profile.course, merged);
         setAiPosts(merged);
       }
+      // One fresh AI lesson per day per device — never generate on every visit, so the AI budget lasts.
       if (!postedToday(new Date(), merged)) void writeMore(1);
     })();
     return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile.level, profile.course]);
 
-  const listenTo = async (l: Lesson) => {
-    unlockVoice();
-    if (playing === l.id) { stopVoice(); setPlaying(null); return; }
-    setLoadingVoice(l.id);
-    const text = `${l.title}. Course code: ${l.code}. ${l.say}. Remember: ${l.memory}. Common exam mistake: ${l.trap}.`;
-    const ok = await playVoice(text, () => setPlaying(null));
-    setLoadingVoice(null);
-    if (ok) setPlaying(l.id);
-    else toast.error("Voice needs internet or offline voice installed.", { description: "You can download Kitten offline voice inside Study Vault." });
-  };
+  useEffect(() => {
+    const el = sentinel.current; if (!el) return;
+    const io = new IntersectionObserver((e) => {
+      if (!e[0]?.isIntersecting) return;
+      void writeMore(1);
+    }, { rootMargin: "800px" });
+    io.observe(el); return () => io.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, profile.course, profile.level]);
 
-  const sharePost = async (id: string, title: string) => {
-    const url = `${window.location.origin}/?post=${encodeURIComponent(id)}`;
-    if (navigator.share) {
-      try { await navigator.share({ title, text: `${title} on FUTES Nexus`, url }); return; } catch { /* ignore */ }
-    }
-    await navigator.clipboard.writeText(url);
-    setCopied(true);
-    toast.success("Link copied to clipboard", { description: "Send it to your FUTES coursemates." });
-    setTimeout(() => setCopied(false), 2000);
+  // Lock page scroll under overlays so nothing jumps behind them.
+  const overlay = !!view || news || orb || switcher || bell || !!quiz;
+  useEffect(() => { document.body.style.overflow = overlay ? "hidden" : ""; return () => { document.body.style.overflow = ""; }; }, [overlay]);
+
+  const listen = async (l: Lesson) => {
+    if (playing === l.id || loadingVoice === l.id) { stopVoice(); setPlaying(null); setLoadingVoice(null); return; }
+    unlockVoice(); // inside the tap, so the phone lets the voice play the moment it arrives
+    setLoadingVoice(l.id); setPlaying(null);
+    if (!navigator.onLine && !kittenReady()) toast("Preparing offline voice — first time takes a moment.");
+    try {
+      // Short spoken version = fast audio (about 2 seconds to start) and easy to follow.
+      const say = (l as Partial<StoredPost>).say;
+      const text = say || `${l.title}. ${l.body.split(/\n+/)[0]} Remember it like this: ${l.trick}`;
+      let ended = false;
+      const ok = await playVoice(text, () => { ended = true; setPlaying(null); });
+      setLoadingVoice(null);
+      if (!ok) { setPlaying(null); toast("Voice is unavailable right now — try again shortly."); }
+      else if (!ended) setPlaying(l.id);
+    } catch { setLoadingVoice(null); setPlaying(null); toast.error("Couldn't play audio — check your connection."); }
   };
 
   const viewed = (all.find((p) => p.id === view) ?? (extra?.id === view ? extra : undefined)) as (Lesson & Partial<StoredPost>) | undefined;
+  const closeView = () => { setView(null); history.replaceState(null, "", "/"); };
+  const go = (t: "feed" | "vault") => { setTab(t); scroller.current?.scrollTo({ top: 0 }); setHidden(false); };
 
   return (
-    <div className="nexus-shell flex flex-col font-sans text-foreground">
-      <header className="nexus-header z-30 flex flex-col border-b border-border/40 bg-graphite/95 backdrop-blur-xl">
-        <div className="flex h-14 items-center justify-between px-3.5 sm:px-4">
-          <div className="flex items-center gap-2.5">
-            <img src="/futes-crest.jpg" alt="FUTES crest" className="h-8 w-8 rounded-full border border-primary/40 object-cover" />
-            <div className="leading-tight">
-              <div className="flex items-center gap-1.5 font-display text-sm font-extrabold tracking-wide text-primary">
-                FUTES <span className="text-foreground/40">//</span> NEXUS
-              </div>
-              <p className="line-clamp-1 max-w-[200px] text-[11px] text-muted-foreground sm:max-w-none">
-                {lvl} · {course}
-              </p>
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-canvas">
+      {/* Locked header: lives outside the scroll area, so mobile address-bar collapse can never move it. */}
+      <header className="nexus-header relative z-40 h-[72px] shrink-0">
+        <div className="mx-auto flex h-full max-w-xl items-center justify-between gap-2 px-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <img src="/futes-crest.jpg" alt="FUTES" width={44} height={44} className="h-11 w-11 shrink-0 rounded-2xl object-cover ring-2 ring-primary/40" />
+            <div className="min-w-0 leading-none">
+              <p className="whitespace-nowrap font-display text-[18px] font-extrabold tracking-[0.14em]"><span className="text-foreground">FUTES</span> <span className="brand-gradient">NEXUS</span></p>
+              <button onClick={() => setSwitcher(true)} className="mt-0.5 flex max-w-full items-center gap-1 rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20">
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${online ? "bg-emerald" : "bg-warning"}`} />
+                <span className="truncate">{lvl} · {course}</span>
+                <ChevronDown className="h-3 w-3 shrink-0" />
+              </button>
             </div>
           </div>
-
-          <div className="flex items-center gap-1.5">
-            {!online && (
-              <span className="flex items-center gap-1 rounded-full border border-gold/40 bg-gold/10 px-2 py-0.5 text-[11px] font-semibold text-gold">
-                <WifiOff className="h-3 w-3" /> Offline
-              </span>
-            )}
-            <button onClick={() => setNews(true)} aria-label="Notifications" className="relative rounded-full p-2 text-foreground/80 hover:bg-secondary">
-              <Bell className="h-4 w-4" />
-              <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-gold" />
-            </button>
-            <button onClick={onExit} aria-label="Change level or course" className="flex items-center gap-1 rounded-full border border-border/60 bg-secondary/60 px-2.5 py-1 text-xs font-semibold text-foreground/85 hover:bg-secondary">
-              <LogOut className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Switch</span>
-            </button>
-          </div>
+          <button aria-label="Notifications" onClick={() => setBell(true)} className="relative grid h-11 w-11 shrink-0 place-items-center rounded-full bg-secondary/70 hover:bg-secondary">
+            <Bell className="h-5 w-5" />
+            <span className="absolute right-2.5 top-2.5 h-2.5 w-2.5 animate-pulse rounded-full bg-primary ring-2 ring-graphite" />
+          </button>
         </div>
+        {!online && <div className="absolute inset-x-0 top-full flex items-center justify-center gap-2 bg-warning py-1.5 text-xs font-medium text-graphite"><WifiOff className="h-3.5 w-3.5" /> You're offline — showing saved posts</div>}
       </header>
 
-      <main ref={scroller as unknown as React.RefObject<HTMLDivElement>} onScroll={onScroll} className="nexus-main flex-1 overflow-y-auto overscroll-contain">
-        <div className="mx-auto w-full max-w-xl space-y-4 p-3.5 pb-28 sm:p-4">
-          {tab === "feed" && (
-            <>
-              <article className="card-solid gold-ring overflow-hidden rounded-3xl">
-                <div className="p-4">
-                  <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-gold"><Pin className="h-3.5 w-3.5" /> Pinned · Student guide</div>
-                  <Author gold name="Nexus News" meta="Student guide · 2026/2027" />
-                  <h2 className="mt-3 font-display text-xl font-bold">{NEWS.title}</h2>
-                  <p className="mt-1.5 text-[16px] leading-relaxed text-foreground/90">{NEWS.short}</p>
-                </div>
-                <img src="/futes-crest.jpg" alt="FUTES crest" loading="lazy" className="aspect-[16/9] w-full object-cover" />
-                <div className="grid grid-cols-2 gap-2 p-3">
-                  <button onClick={() => setNews(true)} className="flex items-center justify-center gap-2 rounded-xl bg-gold py-2.5 text-sm font-semibold text-graphite"><Eye className="h-4 w-4" /> View more</button>
-                  <button onClick={() => sharePost(NEWS_ID, NEWS.title)} className="flex items-center justify-center gap-2 rounded-xl bg-secondary py-2.5 text-sm font-semibold"><Share2 className="h-4 w-4" /> Share</button>
-                </div>
-              </article>
+      <main ref={scroller} className="min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
+        <div className="mx-auto max-w-xl space-y-4 px-3 pb-40 pt-4">
+        {tab === "feed" ? (
+          <>
+            <article className="card-solid gold-ring overflow-hidden rounded-3xl">
+              <div className="p-4">
+                <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-gold"><Pin className="h-3.5 w-3.5" /> Pinned · Student guide</div>
+                <Author gold name="Nexus News" meta="Student guide · 2026/2027" />
+                <h2 className="mt-3 font-display text-xl font-bold">{NEWS.title}</h2>
+                <p className="mt-1.5 text-[16px] leading-relaxed text-foreground/90">{NEWS.short}</p>
+              </div>
+              <img src="/futes-crest.jpg" alt="FUTES crest" loading="lazy" className="aspect-[16/9] w-full object-cover" />
+              <div className="grid grid-cols-2 gap-2 p-3">
+                <button onClick={() => setNews(true)} className="flex items-center justify-center gap-2 rounded-xl bg-gold py-2.5 text-sm font-semibold text-graphite"><Eye className="h-4 w-4" /> View more</button>
+                <button onClick={() => sharePost(NEWS_ID, NEWS.title)} className="flex items-center justify-center gap-2 rounded-xl bg-secondary py-2.5 text-sm font-semibold"><Share2 className="h-4 w-4" /> Share</button>
+              </div>
+            </article>
 
-              {writing && (
-                <div className="card-solid rounded-2xl p-3 text-center">
-                  <div className="flex items-center justify-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                    <p className="busy-glow flex items-center gap-1.5 text-xs text-primary"><Sparkles className="h-3.5 w-3.5" /> Writing a new lesson from your scheme of work…</p>
+            {writing && (
+              <div className="card-solid flex items-center gap-3 rounded-3xl p-4">
+                <Avatar faculty={profile.faculty} size={40} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold"><CourseName name={course} /> AI</p>
+                  <p className="busy-glow flex items-center gap-1.5 text-xs text-primary"><Sparkles className="h-3.5 w-3.5" /> Writing a new lesson from your scheme of work…</p>
+                </div>
+              </div>
+            )}
+
+            {all.map((l, n) => {
+              const ai = l as Lesson & Partial<StoredPost>;
+              return (
+                <article key={l.id} className="feed-card card-solid overflow-hidden rounded-3xl">
+                  <div className="p-4 pb-3">
+                    <Author faculty={profile.faculty} name={<><CourseName name={course} /> AI</>} meta={`${ai.at ? timeAgo(ai.at) : `${n * 7 + 3}m`} · ${lvl} · ${l.code}`} />
+                    <h3 className="mt-3 font-display text-lg font-bold leading-snug">{l.title}</h3>
+                    {ai.hook && <p className="mt-1 text-[15px] font-medium text-primary">{ai.hook}</p>}
+                    <p className="mt-2 line-clamp-6 whitespace-pre-line text-[16px] leading-relaxed text-foreground/90">{l.body}</p>
+                    <button onClick={() => setView(l.id)} className="mt-1 text-sm font-semibold text-muted-foreground hover:text-foreground">See more</button>
+                  </div>
+                  <button onClick={() => setView(l.id)} className="block w-full text-left" aria-label={`View ${l.title}`}><Visual l={l} /></button>
+                  <Actions playing={playing === l.id} loading={loadingVoice === l.id} onListen={() => listen(l)} onView={() => setView(l.id)} onShare={() => sharePost(l.id, l.title)} />
+                </article>
+              );
+            })}
+            {online && remainingToday() === 0 ? (
+              <div ref={sentinel} className="caught-up rounded-3xl p-[2px]">
+                <div className="rounded-[calc(1.5rem-2px)] bg-graphite px-5 py-7 text-center">
+                  <Sparkles className="mx-auto h-8 w-8 text-gold" />
+                  <p className="text-shimmer mt-3 font-display text-2xl font-extrabold">You're all caught up for today</p>
+                  <p className="mt-2 text-[15px] text-foreground/85">Come back tomorrow for 20 fresh {course} lessons from your scheme of work.</p>
+                  <div className="mt-5 grid grid-cols-2 gap-2">
+                    <button onClick={() => all[0] && setView(all[0].id)} className="rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground">Revise a lesson</button>
+                    <button onClick={() => go("vault")} className="rounded-xl bg-secondary py-2.5 text-sm font-semibold">Study Vault</button>
                   </div>
                 </div>
-              )}
-
-              {(aiPosts.length > 0 ? aiPosts : lessons.slice(0, 1)).map((l, n) => {
-                const ai = l as Lesson & Partial<StoredPost>;
-                return (
-                  <article key={l.id} className="feed-card card-solid overflow-hidden rounded-3xl">
-                    <div className="p-4 pb-3">
-                      <Author faculty={profile.faculty} name={<><CourseName name={course} /> AI</>} meta={`${ai.at ? timeAgo(ai.at) : `${n * 7 + 3}m`} · ${lvl} · ${l.code}`} />
-                      <h2 className="mt-2 font-display text-2xl font-bold leading-tight tracking-tight">{l.title}</h2>
-                      <p className="mt-1 font-mono text-xs font-semibold text-primary">{l.tag}</p>
-                      <p className="mt-2.5 text-[17px] leading-relaxed text-foreground/90">{l.say}</p>
-                    </div>
-                    <img src={l.image} alt={l.title} loading="lazy" className="aspect-[16/9] w-full object-cover" />
-                    <div className="grid grid-cols-3 gap-2 p-3">
-                      <button onClick={() => setView(l.id)} className="flex items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground"><BookOpen className="h-4 w-4" /> Read</button>
-                      <button onClick={() => listenTo(l)} className="flex items-center justify-center gap-1.5 rounded-xl bg-secondary py-2.5 text-sm font-semibold">{loadingVoice === l.id ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : playing === l.id ? <Pause className="h-4 w-4 text-primary" /> : <Headphones className="h-4 w-4" />} Listen</button>
-                      <button onClick={() => sharePost(l.id, l.title)} className="flex items-center justify-center gap-1.5 rounded-xl bg-secondary py-2.5 text-sm font-semibold"><Share2 className="h-4 w-4" /> Share</button>
-                    </div>
-                  </article>
-                );
-              })}
-
-              {online && remainingToday() === 0 ? (
-                <div ref={sentinel} className="caught-up rounded-3xl p-[2px]">
-                  <div className="rounded-[calc(1.5rem-2px)] bg-graphite px-5 py-7 text-center">
-                    <Sparkles className="mx-auto h-8 w-8 text-gold" />
-                    <p className="text-shimmer mt-3 font-display text-2xl font-extrabold">You're all caught up for today</p>
-                    <p className="mt-2 text-[15px] text-foreground/85">Come back tomorrow for your next {course} lesson from your scheme of work.</p>
-                    <div className="mt-5 grid grid-cols-2 gap-2">
-                      <button onClick={() => (aiPosts[0] ?? all[0]) && setView((aiPosts[0] ?? all[0])!.id)} className="rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground">Revise a lesson</button>
-                      <button onClick={() => go("vault")} className="rounded-xl bg-secondary py-2.5 text-sm font-semibold">Study Vault</button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
+              </div>
+            ) : (
               <div ref={sentinel} className="py-6 text-center text-xs text-muted-foreground">{online ? `Loading more for ${lvl} ${course}…` : "You're offline — these lessons are saved on your phone."}</div>
-            </>
-          )}
-
-          {tab === "vault" && (
-            <div className="space-y-4">
-              <button onClick={() => { void warmKitten().then((ok) => setVoiceOffline(ok)); }} className="card-solid flex w-full items-center justify-between rounded-2xl p-3.5 text-left">
-                <span className="min-w-0"><span className="block text-sm font-semibold">{voiceOffline ? "Offline voice is ready" : "Download offline voice"}</span><span className="block text-xs text-muted-foreground">Kitten neural voice reads lessons with no internet.</span></span>
-                <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-semibold">{voiceOffline ? "Ready" : "Install"}</span>
-              </button>
-              <Vault lessons={all} course={course} lvl={lvl} faculty={profile.faculty} onOpen={setView} onAsk={() => { unlockVoice(); setOrb(true); }} />
-            </div>
-          )}
+            )}
+          </>
+        ) : (
+          <>
+          <button disabled={voiceOffline} onClick={async () => { toast("Downloading offline voice (~25 MB)…"); const ok = await warmKitten(); setVoiceOffline(ok); toast[ok ? "success" : "error"](ok ? "Offline voice ready — Listen works without internet." : "Download failed — try again on better network."); }}
+            className="card-solid flex w-full items-center gap-3 rounded-3xl p-4 text-left disabled:opacity-80">
+            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-primary/15 text-primary">{voiceOffline ? <CheckCircle2 className="h-5 w-5" /> : <Download className="h-5 w-5" />}</span>
+            <span className="min-w-0"><span className="block text-sm font-semibold">{voiceOffline ? "Offline voice is ready" : "Download offline voice"}</span><span className="block text-xs text-muted-foreground">Kitten neural voice reads lessons with no internet.</span></span>
+          </button>
+          <Vault lessons={all} course={course} lvl={lvl} faculty={profile.faculty} onOpen={setView} onAsk={() => { unlockVoice(); setOrb(true); }} />
+          </>
+        )}
         </div>
       </main>
 
-      <nav aria-label="Primary" className={`nexus-dock fixed inset-x-0 bottom-0 z-30 transition-transform duration-300 ${hidden ? "translate-y-full" : "translate-y-0"}`}>
-        <div className="mx-auto max-w-md px-4 pb-4">
-          <div className="flex h-16 items-center justify-around rounded-3xl border border-border/50 bg-graphite/95 px-3 shadow-2xl backdrop-blur-2xl">
-            <button onClick={() => go("feed")} className={`flex flex-col items-center gap-1 px-4 py-1 text-xs font-semibold transition ${tab === "feed" ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
-              <Home className="h-5 w-5" />
-              <span>Feed</span>
-            </button>
-
-            <button onClick={() => { unlockVoice(); setOrb(true); }} aria-label="Talk to Nexus AI" className="group -mt-6 flex flex-col items-center focus:outline-none">
-              <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-graphite p-1 shadow-2xl ring-4 ring-background">
-                <JarvisOrb size={54} />
-              </span>
-              <span className="mt-1 text-[11px] font-bold text-primary group-hover:underline">Nexus AI</span>
-            </button>
-
-            <button onClick={() => go("vault")} className={`flex flex-col items-center gap-1 px-4 py-1 text-xs font-semibold transition ${tab === "vault" ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
-              <Library className="h-5 w-5" />
-              <span>Vault</span>
-            </button>
+      {/* Bottom dock — slides away on scroll down; orb shrinks in place (transform only, no layout jumps) */}
+      <nav className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-[max(env(safe-area-inset-bottom),14px)]">
+        <div className="relative h-[68px] w-full max-w-[320px]">
+          <div className={`dock-glass pointer-events-auto absolute inset-0 grid grid-cols-3 items-center rounded-[28px] transition-[transform,opacity] duration-300 ease-out will-change-transform ${hidden ? "translate-y-[130%] opacity-0" : ""}`}>
+            <button onClick={() => go("feed")} className={`flex flex-col items-center gap-0.5 text-[11px] font-semibold ${tab === "feed" ? "text-primary" : "text-muted-foreground"}`}><Home className="h-5 w-5" /> Feed</button>
+            <span />
+            <button onClick={() => go("vault")} className={`flex flex-col items-center gap-0.5 text-[11px] font-semibold ${tab === "vault" ? "text-primary" : "text-muted-foreground"}`}><Library className="h-5 w-5" /> Study Vault</button>
           </div>
+          <button
+            onClick={() => { unlockVoice(); setOrb(true); }}
+            aria-label="Open Nexus"
+            className={`pointer-events-auto absolute left-1/2 top-0 -ml-[38px] -mt-[30px] rounded-full bg-graphite p-1.5 ring-1 ring-primary/30 transition-transform duration-300 ease-out will-change-transform ${hidden ? "translate-y-[40px] scale-[0.72]" : ""}`}
+          >
+            <NexusOrb size={64} />
+          </button>
         </div>
       </nav>
 
-      {viewed && <Modal lesson={viewed} course={course} lvl={lvl} faculty={profile.faculty} onClose={() => setView(null)} onQuiz={() => { setQuiz(viewed); setView(null); }} onListen={() => listenTo(viewed)} onShare={() => sharePost(viewed.id, viewed.title)} playing={playing === viewed.id} loadingVoice={loadingVoice === viewed.id} />}
+      {viewed && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-canvas animate-fade">
+          <div className="shrink-0 border-b border-border bg-graphite">
+            <div className="mx-auto flex max-w-xl items-center gap-2 px-3 py-3">
+              <button onClick={closeView} className="grid h-10 w-10 place-items-center rounded-full hover:bg-secondary" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
+              <span className="font-display font-semibold">{viewed.code} · Lesson</span>
+            </div>
+          </div>
+          <div className="mx-auto min-h-0 w-full max-w-xl flex-1 overflow-y-auto overscroll-contain pb-12">
+            <Visual l={viewed} hideTitle />
+            <div className="space-y-4 p-4">
+              <Author faculty={profile.faculty} name={<><CourseName name={course} /> AI</>} meta={`${lvl} · ${viewed.courseTitle ?? viewed.tag}`} />
+              <h1 className="font-display text-3xl font-bold leading-tight">{viewed.title}</h1>
+              {viewed.hook && <p className="text-lg font-medium text-primary">{viewed.hook}</p>}
+              {viewed.body.split(/\n+/).map((p) => <p key={p} className="text-[17px] leading-8 text-foreground/90">{p}</p>)}
+              <Actions playing={playing === viewed.id} loading={loadingVoice === viewed.id} onListen={() => listen(viewed)} viewLabel="Quiz" onView={() => setQuiz(viewed)} onShare={() => sharePost(viewed.id, viewed.title)} />
+              {!!viewed.steps?.length && (
+                <div className="card-solid rounded-3xl p-5">
+                  <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-primary"><GraduationCap className="h-4 w-4" /> Step by step</p>
+                  <ol className="mt-3 space-y-3">
+                    {viewed.steps.map((s, i) => <li key={s} className="flex gap-3 text-[16px] leading-7"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/15 text-sm font-bold text-primary">{i + 1}</span>{s}</li>)}
+                  </ol>
+                </div>
+              )}
+              {viewed.example && (
+                <div className="rounded-3xl border border-primary/30 bg-primary/10 p-5">
+                  <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-primary"><Lightbulb className="h-4 w-4" /> Real-life example</p>
+                  <p className="mt-2 text-[16px] leading-7">{viewed.example}</p>
+                </div>
+              )}
+              <div id="trick" className="rounded-3xl border border-gold/30 bg-gold/10 p-5">
+                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gold"><Brain className="h-4 w-4" /> Memory trick</p>
+                <p className="mt-2 font-display text-xl font-bold leading-snug">{viewed.trick}</p>
+              </div>
+              <div className="rounded-3xl border border-destructive/30 bg-destructive/10 p-5">
+                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-destructive"><ShieldAlert className="h-4 w-4" /> Exam trap</p>
+                <p className="mt-2 text-[15px] leading-7">{viewed.trap}</p>
+              </div>
+              <div className="card-solid rounded-3xl p-5">
+                <p className="text-xs font-bold uppercase tracking-widest text-primary">Lock it in</p>
+                <ul className="mt-3 space-y-2.5">
+                  {viewed.points.map((p) => <li key={p} className="flex items-center gap-3 text-[15px]"><CheckCircle2 className="h-5 w-5 shrink-0 text-primary" /> {p}</li>)}
+                </ul>
+                <p className="mt-4 text-sm text-muted-foreground">Close your eyes, say the trick out loud, then recall the 3 points. That's it — it sticks.</p>
+              </div>
+              <button onClick={() => setQuiz(viewed)} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-gold/40 bg-gold/10 py-3 font-semibold text-gold"><Brain className="h-4 w-4" /> Test yourself — practice quiz</button>
+              <button onClick={() => { closeView(); unlockVoice(); setOrb(true); }} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 font-semibold text-primary-foreground"><Mic className="h-4 w-4" /> Still confused? Ask Nexus</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {news && (
-        <div role="dialog" aria-modal="true" aria-label={NEWS.title} className="fixed inset-0 z-50 flex flex-col bg-graphite">
-          <div className="flex h-14 items-center justify-between border-b border-border/40 px-4">
-            <button onClick={() => setNews(false)} className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground"><ArrowLeft className="h-4 w-4" /> Back to feed</button>
-            <span className="text-xs font-semibold text-gold">Student guide</span>
-            <button onClick={() => setNews(false)} className="rounded-full p-1.5 text-muted-foreground"><X className="h-5 w-5" /></button>
+        <div className="fixed inset-0 z-50 flex flex-col bg-canvas animate-fade">
+          <div className="shrink-0 border-b border-border bg-graphite">
+            <div className="mx-auto flex max-w-xl items-center gap-2 px-3 py-3">
+              <button onClick={() => { setNews(false); history.replaceState(null, "", "/"); }} className="grid h-10 w-10 place-items-center rounded-full hover:bg-secondary" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
+              <span className="font-display font-semibold">Nexus News</span>
+            </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <div className="mx-auto max-w-xl space-y-4 p-4 pb-12">
@@ -382,414 +528,393 @@ export function Hub({ profile, onExit }: { profile: Profile; onExit: () => void 
         </div>
       )}
 
-      {quiz && <QuizModal lesson={quiz} course={course} level={profile.level} onClose={() => setQuiz(null)} />}
+      {quiz && <Quiz lesson={quiz} level={profile.level} onClose={() => setQuiz(null)} />}
+
+      {switcher && <Switcher profile={profile} onClose={() => setSwitcher(false)} onExit={onExit} onSave={(p) => { setSwitcher(false); scroller.current?.scrollTo({ top: 0 }); onSwitch(p); toast.success(`Switched to ${p.level.replace(" Level", "L")} · ${courseName(p.course)}`); }} />}
 
       {orb && <Nexus lessons={lessons} course={course} level={profile.level} faculty={profile.faculty}
         onClose={() => { stopVoice(); setOrb(false); }}
-        onOpen={(id) => { stopVoice(); setOrb(false); setView(id); }}
-        onNote={(note) => { setView(null); setOrb(false); toast.success("Saved to Study Vault", { description: note }); }}
-      />}
+        onOpen={(id) => { setOrb(false); if (id === "news") setNews(true); else if (id === "vault") go("vault"); else setView(id); }}
+        onNote={(n) => setNotes((x) => [n, ...x])} />}
+
+      {bell && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-background/70 p-4 pt-20" onClick={() => setBell(false)}>
+          <div className="card-solid w-full max-w-sm rounded-3xl p-4" onClick={(e) => e.stopPropagation()}>
+            <p className="font-display text-lg font-bold">Notifications</p>
+            <div className="mt-3 space-y-2 text-sm">
+              {notes.map((n, i) => <p key={i} className="rounded-2xl bg-secondary/60 p-3">{n}</p>)}
+              <p className="rounded-2xl bg-secondary/60 p-3">Nexus News pinned the 2026/2027 registration guide.</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
-
-function JarvisOrb({ size = 48 }: { size?: number }) {
-  return (
-    <span className="jarvis block" style={{ width: size, height: size }}>
-      <span className="jarvis-ring" style={{ inset: 3 }} />
-      <span className="jarvis-ring-rev" style={{ inset: size * 0.17 }} />
-      <span className="jarvis-core" style={{ inset: size * 0.3 }} />
-    </span>
-  );
-}
-
-function CourseName({ name }: { name: string }) {
-  return <span className="font-semibold">{name}</span>;
 }
 
 function Vault({ lessons, course, lvl, faculty, onOpen, onAsk }: { lessons: Lesson[]; course: string; lvl: string; faculty: string; onOpen: (id: string) => void; onAsk: () => void }) {
-  const [tab, setTab] = useState<"all" | "table" | "memory" | "traps">("all");
-  const tt = TIMETABLE[course] ?? TIMETABLE["Software Engineering"];
+  const [flip, setFlip] = useState<string | null>(null);
   return (
-    <div className="space-y-4">
-      <div className="card-solid rounded-3xl p-5">
-        <div className="flex items-center gap-3">
-          <GraduationCap className="h-7 w-7 text-primary" />
-          <div>
-            <h2 className="font-display text-xl font-bold">{course} Study Vault</h2>
+    <>
+      <section className="card-solid relative overflow-hidden rounded-3xl p-5 animate-fade">
+        <div className="flex items-center gap-4">
+          <Avatar faculty={faculty} size={56} />
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-widest text-primary">Study Vault</p>
+            <p className="text-shimmer mt-0.5 truncate font-display text-xl font-bold">{course}</p>
             <p className="text-xs text-muted-foreground">{lvl} scheme of work · {lessons.length} topics</p>
           </div>
         </div>
+        <button onClick={onAsk} className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 font-semibold text-primary-foreground"><Mic className="h-4 w-4" /> Ask your course tutor</button>
+      </section>
 
-        <div className="mt-4 flex gap-1 rounded-2xl bg-secondary/60 p-1 text-xs font-semibold">
-          {(["all", "table", "memory", "traps"] as const).map((t) => (
-            <button key={t} onClick={() => setTab(t)} className={`flex-1 rounded-xl py-2 capitalize transition ${tab === t ? "bg-graphite text-foreground shadow" : "text-muted-foreground"}`}>{t === "table" ? "Timetable" : t}</button>
-          ))}
-        </div>
-      </div>
-
-      {tab === "all" && (
-        <div className="space-y-2.5">
+      <section className="card-solid rounded-3xl p-4">
+        <h3 className="flex items-center gap-2 font-display text-lg font-bold"><GraduationCap className="h-5 w-5 text-primary" /> Scheme of work</h3>
+        <div className="mt-2 divide-y divide-border">
           {lessons.map((l, i) => (
-            <button key={l.id} onClick={() => onOpen(l.id)} className="card-solid flex w-full items-center justify-between rounded-2xl p-3.5 text-left transition hover:border-primary/40">
-              <div className="min-w-0 flex-1 pr-3">
-                <span className="font-mono text-xs font-semibold text-primary">{l.code}</span>
-                <p className="truncate text-sm font-semibold">{l.title}</p>
-                <p className="truncate text-xs text-muted-foreground">{l.tag}</p>
-              </div>
-              <span className="rounded-xl bg-secondary px-2.5 py-1 text-xs font-semibold text-muted-foreground">Topic {i + 1}</span>
+            <button key={l.id} onClick={() => onOpen(l.id)} className="flex w-full items-center gap-3 py-3 text-left">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/15 font-mono text-xs font-bold text-primary">W{i + 1}</span>
+              <div className="min-w-0 flex-1"><p className="truncate text-[15px] font-semibold">{l.title}</p><p className="text-xs text-muted-foreground">{l.code} · {l.tag}</p></div>
+              <Eye className="h-4 w-4 text-muted-foreground" />
             </button>
           ))}
         </div>
-      )}
+      </section>
 
-      {tab === "memory" && (
-        <div className="space-y-2.5">
+      <section className="card-solid rounded-3xl p-4">
+        <h3 className="flex items-center gap-2 font-display text-lg font-bold"><Brain className="h-5 w-5 text-gold" /> Memory deck</h3>
+        <p className="text-xs text-muted-foreground">Tap a card to reveal the trick.</p>
+        <div className="mt-3 grid grid-cols-2 gap-2">
           {lessons.map((l) => (
-            <div key={l.id} className="card-solid rounded-2xl p-3.5">
-              <span className="font-mono text-xs font-semibold text-primary">{l.code} · {l.title}</span>
-              <p className="mt-1.5 text-sm font-medium text-foreground/90">{l.memory}</p>
-            </div>
+            <button key={l.id} onClick={() => setFlip(flip === l.id ? null : l.id)} className={`min-h-28 rounded-2xl border p-3 text-left text-sm transition-colors ${flip === l.id ? "border-gold/40 bg-gold/10" : "border-border bg-secondary/40"}`}>
+              <p className="font-mono text-[11px] font-semibold text-primary">{l.code}</p>
+              <p className="mt-1 leading-snug">{flip === l.id ? l.trick : l.title}</p>
+            </button>
           ))}
         </div>
-      )}
+      </section>
 
-      {tab === "traps" && (
-        <div className="space-y-2.5">
+      <section className="card-solid rounded-3xl p-4">
+        <h3 className="flex items-center gap-2 font-display text-lg font-bold"><ShieldAlert className="h-5 w-5 text-destructive" /> Exam trap bank</h3>
+        <div className="mt-2 space-y-2">
           {lessons.map((l) => <div key={l.id} className="rounded-2xl bg-destructive/10 p-3 text-sm"><p className="font-mono text-[11px] font-semibold text-destructive">{l.code}</p><p className="mt-1 leading-relaxed">{l.trap}</p></div>)}
         </div>
-      )}
+      </section>
 
-      {tab === "table" && (
-        <div className="card-solid space-y-2 rounded-2xl p-4">
-          <p className="text-xs font-semibold text-muted-foreground">Weekly lecture timetable · 2026/2027</p>
-          {tt.map((e) => (
-            <div key={e.day} className="flex items-center justify-between border-b border-border/30 py-2 text-xs last:border-none">
-              <span className="font-semibold text-primary">{e.day}</span>
-              <span>{e.time}</span>
-              <span className="font-mono font-bold">{e.code}</span>
-              <span className="text-muted-foreground">{e.hall}</span>
+      <section className="card-solid rounded-3xl p-4">
+        <h3 className="font-display text-lg font-bold">This week's lectures</h3>
+        <div className="mt-2 divide-y divide-border">
+          {TIMETABLE.map((t) => (
+            <div key={t.day + t.code} className="flex items-center gap-3 py-3 text-sm">
+              <span className="w-10 font-mono text-xs font-semibold text-primary">{t.day}</span>
+              <div className="flex-1"><p className="font-semibold">{t.code}</p><p className="text-xs text-muted-foreground">{t.room}</p></div>
+              <span className="text-xs text-muted-foreground">{t.time}</span>
             </div>
           ))}
         </div>
-      )}
-
-      <button onClick={onAsk} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 text-sm font-bold text-primary-foreground shadow-lg shadow-primary/25">
-        <Sparkles className="h-4 w-4" /> Ask Nexus AI about your course
-      </button>
-    </div>
+        <p className="mt-2 text-[11px] text-muted-foreground">Sample timetable — send your department's to replace it.</p>
+      </section>
+    </>
   );
 }
 
-function Modal({ lesson, course, lvl, faculty, onClose, onQuiz, onListen, onShare, playing, loadingVoice }: { lesson: Lesson & Partial<StoredPost>; course: string; lvl: string; faculty: string; onClose: () => void; onQuiz: () => void; onListen: () => void; onShare: () => void; playing: boolean; loadingVoice: boolean }) {
-  const Icon = ICONS[lesson.icon] ?? BookOpen;
+function Switcher({ profile, onClose, onSave, onExit }: { profile: Profile; onClose: () => void; onSave: (p: Profile) => void; onExit: () => void }) {
+  const [level, setLevel] = useState<Level>(profile.level);
+  const [course, setCourse] = useState(profile.course);
+  const [q, setQ] = useState("");
+  const list = COURSES.filter((c) => courseName(c.name).toLowerCase().includes(q.toLowerCase()));
   return (
-    <div role="dialog" aria-modal="true" aria-label={lesson.title} className="fixed inset-0 z-50 flex flex-col bg-graphite">
-      <div className="flex h-14 items-center justify-between border-b border-border/40 px-4">
-        <button onClick={onClose} className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground"><ArrowLeft className="h-4 w-4" /> Back</button>
-        <span className="font-mono text-xs font-bold text-primary">{lesson.code}</span>
-        <button onClick={onClose} className="rounded-full p-1.5 text-muted-foreground"><X className="h-5 w-5" /></button>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <div className="mx-auto max-w-xl space-y-4 p-4 pb-20">
-          <Author faculty={faculty} name={<><CourseName name={course} /> AI</>} meta={`${lvl} · ${lesson.code}`} />
-          <h1 className="font-display text-3xl font-extrabold leading-tight tracking-tight">{lesson.title}</h1>
-          <p className="font-mono text-xs font-semibold text-primary">{lesson.tag}</p>
-
-          <img src={lesson.image} alt={lesson.title} className="aspect-[16/9] w-full rounded-3xl object-cover" />
-
-          <div className="flex gap-2">
-            <button onClick={onListen} className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-secondary py-3 text-sm font-semibold">{loadingVoice ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : playing ? <Pause className="h-4 w-4 text-primary" /> : <Headphones className="h-4 w-4" />}{playing ? "Pause" : "Listen to lesson"}</button>
-            <button onClick={onShare} className="flex items-center justify-center gap-2 rounded-2xl bg-secondary px-4 py-3 text-sm font-semibold"><Share2 className="h-4 w-4" /> Share</button>
-          </div>
-
-          <p className="rounded-2xl border border-primary/20 bg-primary/5 p-4 text-[17px] leading-relaxed text-foreground/95">{lesson.say}</p>
-
-          <div className="space-y-3">
-            <h2 className="font-display text-lg font-bold">What a student must understand</h2>
-            {lesson.body.map((p, i) => (
-              <p key={i} className="text-[17px] leading-8 text-foreground/90">{p}</p>
-            ))}
-          </div>
-
-          <div className="space-y-2 rounded-2xl bg-secondary/40 p-4">
-            <h2 className="font-display text-sm font-bold text-primary">Core takeaway points</h2>
-            <ul className="space-y-1.5 text-sm">
-              {lesson.points.map((pt) => <li key={pt} className="flex gap-2"><CheckCircle2 className="h-4 w-4 shrink-0 text-primary" /><span>{pt}</span></li>)}
-            </ul>
-          </div>
-
-          <div className="rounded-2xl bg-primary/10 p-4">
-            <p className="text-xs font-bold text-primary">ONE LINE TO REMEMBER</p>
-            <p className="mt-1 text-sm font-medium">{lesson.memory}</p>
-          </div>
-
-          <div className="rounded-2xl bg-destructive/10 p-4">
-            <p className="text-xs font-bold text-destructive">COMMON EXAM TRAP</p>
-            <p className="mt-1 text-sm">{lesson.trap}</p>
-          </div>
-
-          <button onClick={onQuiz} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 text-base font-bold text-primary-foreground shadow-lg shadow-primary/25">
-            <Brain className="h-5 w-5" /> Take 4-question revision quiz
-          </button>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 sm:items-center" onClick={onClose}>
+      <div className="card-solid flex max-h-[80dvh] w-full max-w-md flex-col rounded-t-[2rem] p-4 sm:rounded-[2rem]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <p className="font-display text-lg font-bold">Switch level & course</p>
+          <button onClick={onClose} aria-label="Close" className="grid h-9 w-9 place-items-center rounded-full hover:bg-secondary"><X className="h-5 w-5" /></button>
         </div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {LEVELS.map((l) => <button key={l} onClick={() => setLevel(l)} className={`rounded-xl py-2.5 text-sm font-semibold ${level === l ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>{l}</button>)}
+        </div>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search 35 courses…" className="mt-3 rounded-xl border border-border bg-input/40 px-3 py-2.5 text-[15px] outline-none focus:border-primary" />
+        <div className="mt-2 flex-1 overflow-y-auto overscroll-contain">
+          {list.map((c) => (
+            <button key={c.name} onClick={() => setCourse(c.name)} className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm ${course === c.name ? "bg-primary/15 text-primary" : "hover:bg-secondary"}`}>
+              <span>{courseName(c.name)}</span>{course === c.name && <CheckCircle2 className="h-4 w-4" />}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => onSave({ level, course, faculty: COURSES.find((c) => c.name === course)?.faculty ?? profile.faculty })} className="mt-3 rounded-2xl bg-primary py-3 font-semibold text-primary-foreground">Switch now</button>
+        <button onClick={onExit} className="mt-2 flex items-center justify-center gap-1.5 py-2 text-xs text-muted-foreground"><LogOut className="h-3.5 w-3.5" /> Back to gate</button>
       </div>
     </div>
   );
 }
+
+type Msg = { from: "ai" | "me"; text: string; fresh?: boolean };
 
 function Nexus({ lessons, course, level, faculty, onClose, onOpen, onNote }: { lessons: Lesson[]; course: string; level: Level; faculty: string; onClose: () => void; onOpen: (id: string) => void; onNote: (n: string) => void }) {
-  const [msgs, setMsgs] = useState<Array<{ from: "user" | "ai"; text: string }>>([
-    { from: "ai", text: `I am Nexus, your ${level} ${course} tutor. Ask me about your topics, timetable, or exam questions.` },
-  ]);
+  const chatKey = `nexus.chat.${course}`;
+  const [msgs, setMsgs] = useState<Msg[]>(() => {
+    try { const m = JSON.parse(localStorage.getItem(chatKey) || "null") as Msg[] | null; if (m?.length) return m.map((x) => ({ ...x, fresh: false })); } catch { /* ignore */ }
+    return [{ from: "ai", text: `I'm Nexus, your ${course} coursemate. Ask me any topic and I'll explain it simply, or tap the mic.` }];
+  });
   const [input, setInput] = useState("");
-  const [state, setState] = useState<"idle" | "listening" | "thinking">("idle");
-  const [holding, setHolding] = useState(false);
-  const recRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const bottom = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [msgs, state]);
-
+  const [state, setState] = useState<"idle" | "thinking" | "voice" | "speaking">("idle");
+  const [voice, setVoice] = useState<"off" | "rec" | "cancel">("off");
+  const voiceRef = useRef<"off" | "rec" | "cancel">("off");
+  const rec = useRef<MediaRecorder | null>(null);
+  const stream = useRef<MediaStream | null>(null);
+  const bars = useRef<(HTMLSpanElement | null)[]>([]);
+  const rafId = useRef(0);
+  const startY = useRef(0);
+  const released = useRef(false);
+  const end = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { const el = box.current; if (!el) return; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 180)}px`; }, [input]);
+  useEffect(() => { try { localStorage.setItem(chatKey, JSON.stringify(msgs.slice(-40).map(({ from, text }) => ({ from, text })))); } catch { /* ignore */ } }, [msgs, chatKey]);
+  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs, state]);
+  useEffect(() => () => {
+    try { if (rec.current?.state === "recording") rec.current.stop(); } catch { /* ignore */ }
+    stream.current?.getTracks().forEach((t) => t.stop());
+    cancelAnimationFrame(rafId.current);
+  }, []);
   const chips = [`Explain ${lessons[0]?.code ?? "my course"} simply`, "Give me 3 exam questions", "Explain it like I'm 12", "Open Nexus News"];
+
+  // Local intents: 0 API calls, instant.
+  const local = (t: string) => {
+    const post = lessons.find((p) => t.includes(p.code.toLowerCase()) && /open|show|go/.test(t));
+    if (post) return { text: `Roger. Opening ${post.code}.`, act: () => onOpen(post.id) };
+    if (/news|fresher|registration/.test(t)) return { text: "Roger. Opening Nexus News.", act: () => onOpen("news") };
+    if (/vault|timetable|scheme/.test(t)) return { text: "Roger. Study Vault.", act: () => onOpen("vault") };
+    if (/draft|letter|document/.test(t)) return { text: "Done. It's in your notifications.", act: () => onNote(`📄 Draft ready: "Letter of Acceptance — ${course}".`) };
+    return null;
+  };
+
+  const say = async (text: string) => {
+    setState("voice");
+    let ended = false;
+    try {
+      // The voice reads the explanation, never raw code — code stays on screen where it can be copied.
+      const p = playVoice(speechText(text), () => { ended = true; setState("idle"); });
+      const ok = await p;
+      if (!ok || ended) setState("idle"); else setState("speaking");
+    } catch { setState("idle"); }
+  };
 
   const send = async (text: string) => {
     const q = text.trim();
     if (!q || state === "thinking") return;
-    setInput("");
-    const t = q.toLowerCase();
-    const post = lessons.find((p) => t.includes(p.code.toLowerCase()) && /open|show|go/.test(t));
-    if (post) { onOpen(post.id); return; }
-    const history = msgs.slice(-6);
-    setMsgs((m) => [...m, { from: "user", text: q }]);
+    unlockVoice();
+    const history = msgs.slice(-6).map((m) => ({ role: m.from === "ai" ? ("assistant" as const) : ("user" as const), content: m.text }));
+    setMsgs((m) => [...m, { from: "me", text: q }]); setInput("");
+    const l = local(q.toLowerCase());
+    if (l) { setMsgs((m) => [...m, { from: "ai", text: l.text }]); void say(l.text); setTimeout(l.act, 700); return; }
+    if (!navigator.onLine) { const t = "You're offline. Open the Study Vault — your tricks and traps are saved there."; setMsgs((m) => [...m, { from: "ai", text: t }]); return; }
     setState("thinking");
     try {
       const r = await askJarvis({ data: { question: q, course, level, history } });
-      const reply = r.text ?? (r.error === "busy" ? "Lots of students asking right now — give me 10 seconds and ask again." : "I couldn't reach my brain just now. Try again.");
-      setMsgs((m) => [...m, { from: "ai", text: reply }]);
-      void playVoice(reply);
-    } catch {
-      setMsgs((m) => [...m, { from: "ai", text: "Offline right now. Read your saved Study Vault lessons or try again with internet." }]);
-    } finally {
-      setState("idle");
-    }
+      const t = r.text ?? (r.error === "busy" ? "Lots of students asking right now — give me 10 seconds and ask again." : "I couldn't reach my brain just now. Try again.");
+      setMsgs((m) => [...m, { from: "ai", text: t }]);
+      if (r.text) void say(r.text); else setState("idle");
+    } catch { setMsgs((m) => [...m, { from: "ai", text: "Connection dropped. Try again." }]); setState("idle"); }
   };
 
-  const startVoice = async () => {
-    unlockVoice();
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      chunksRef.current = [];
-      const rec = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : undefined });
-      recRef.current = rec;
-      rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      rec.start(100);
-      setState("listening");
-      setHolding(true);
-    } catch {
-      toast.error("Microphone access needed for voice mode");
-      setState("idle");
-      setHolding(false);
-    }
-  };
-
-  const stopVoiceRec = async () => {
-    setHolding(false);
-    const rec = recRef.current;
-    if (!rec || rec.state === "inactive") return;
+  // Voice mode: hold the mic — the frame opens, the student talks, release sends. Slide up cancels.
+  const finishHold = async (chunks: Blob[], mime: string) => {
+    cancelAnimationFrame(rafId.current);
+    stream.current?.getTracks().forEach((t) => t.stop());
+    stream.current = null; rec.current = null;
+    const cancelled = voiceRef.current === "cancel";
+    voiceRef.current = "off"; setVoice("off");
+    if (cancelled) return;
+    const blob = new Blob(chunks, { type: mime });
+    if (blob.size < 2000) { toast("Too short — tap the mic and speak a full sentence."); return; }
     setState("thinking");
-    await new Promise<void>((resolve) => {
-      rec.onstop = () => resolve();
-      rec.stop();
-    });
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
-    if (blob.size < 1200) { setState("idle"); return; }
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
     try {
-      const buf = await blob.arrayBuffer();
-      const bytes = new Uint8Array(buf);
-      let binary = "";
-      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      const base64 = btoa(binary);
-      const res = await transcribe({ data: { audioBase64: base64, mimeType: blob.type } });
-      if (res.text && res.text.trim().length > 1) {
-        await send(res.text.trim());
-      } else {
-        setState("idle");
-      }
+      const { text } = await transcribe({ data: { audio: btoa(bin), mime } });
+      // Voice mode sends straight away — no typing needed.
+      if (text) void send(text);
+      else { setState("idle"); toast("Didn't catch that — tap the mic and try again."); }
+    } catch { setState("idle"); toast.error("Voice failed — check your connection."); }
+  };
+
+  const startHold = async (y: number) => {
+    startY.current = y;
+    released.current = false;
+    voiceRef.current = "rec"; setVoice("rec");
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.current = s;
+      const actx = new AudioContext();
+      void actx.resume();
+      const an = actx.createAnalyser();
+      an.fftSize = 64;
+      actx.createMediaStreamSource(s).connect(an);
+      const data = new Uint8Array(an.frequencyBinCount);
+      const tick = () => {
+        an.getByteFrequencyData(data);
+        for (let i = 0; i < bars.current.length; i++) {
+          const b = bars.current[i];
+          if (b) b.style.transform = `scaleY(${0.15 + (data[(i * 2) % data.length]! / 255) * 0.85})`;
+        }
+        rafId.current = requestAnimationFrame(tick);
+      };
+      tick();
+      const mr = new MediaRecorder(s);
+      const chunks: Blob[] = [];
+      mr.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      mr.onstop = () => { actx.close().catch(() => undefined); void finishHold(chunks, mr.mimeType || "audio/webm"); };
+      rec.current = mr;
+      mr.start();
+      if (released.current) mr.stop();
+      setTimeout(() => { if (rec.current === mr && mr.state === "recording") mr.stop(); }, 30000);
     } catch {
-      setState("idle");
-      toast.error("Couldn't hear clearly. Try typing your question.");
+      voiceRef.current = "off"; setVoice("off");
+      toast.error("Allow microphone access to talk to Nexus.");
     }
   };
+
+  const endHold = () => {
+    released.current = true;
+    if (rec.current?.state === "recording") rec.current.stop();
+  };
+
+  const label = { idle: "Ask anything — or hold the mic and talk", thinking: "Thinking…", voice: "Preparing voice…", speaking: "Speaking…" }[state];
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Nexus AI Tutor" className="fixed inset-0 z-50 flex flex-col bg-graphite">
-      <div className="flex h-14 items-center justify-between border-b border-border/40 px-4">
-        <div className="flex items-center gap-2">
-          <JarvisOrb size={28} />
-          <span className="font-display font-bold">Nexus AI</span>
-          <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-semibold text-primary">{course}</span>
-        </div>
-        <button onClick={onClose} className="rounded-full p-1.5 text-muted-foreground"><X className="h-5 w-5" /></button>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 space-y-3">
-        {msgs.map((m, i) => (
-          <div key={i} className={`flex ${m.from === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed ${m.from === "user" ? "bg-primary text-primary-foreground font-medium" : "bg-secondary text-foreground"}`}>
-              {m.text}
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 backdrop-blur-sm animate-fade sm:items-center sm:p-4" onClick={onClose}>
+      <div className="card-solid relative flex h-[88dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-[2rem] sm:h-[86dvh] sm:rounded-[2rem]" onClick={(e) => e.stopPropagation()}>
+        {/* Voice mode frame: hold the mic, the bars dance with the student's voice, release sends. */}
+        {voice !== "off" && (
+          <div className="absolute inset-0 z-20 flex animate-fade flex-col items-center justify-between bg-graphite/95 px-6 pb-10 pt-16">
+            <p className={`text-center text-sm font-medium ${voice === "cancel" ? "text-destructive" : "text-muted-foreground"}`}>{voice === "cancel" ? "Cancelling…" : "Speak now · tap send when you finish"}</p>
+            <div aria-hidden className="flex h-24 items-center gap-[3px]">
+              {Array.from({ length: 34 }, (_, i) => (
+                <span key={i} ref={(el) => { bars.current[i] = el; }} className="h-14 w-[3px] origin-center rounded-full bg-primary will-change-transform" style={{ transform: "scaleY(0.15)" }} />
+              ))}
             </div>
-          </div>
-        ))}
-        {state === "thinking" && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" /> Nexus is thinking…
+            <div className="flex flex-col items-center gap-3">
+              <NexusOrb size={46} />
+              <p className="busy-glow text-sm font-semibold text-primary">Listening — speak now</p>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => { voiceRef.current = "cancel"; setVoice("cancel"); endHold(); }} style={{ WebkitTouchCallout: "none" }} className="select-none rounded-full border border-border px-5 py-3 text-sm font-semibold">Cancel</button>
+                <button type="button" onClick={endHold} style={{ WebkitTouchCallout: "none" }} className="select-none rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground">Tap to send</button>
+              </div>
+            </div>
           </div>
         )}
-        <div ref={bottom} />
-      </div>
-
-      <div className="border-t border-border/40 p-3 space-y-2 bg-graphite/95">
-        <div className="flex gap-1.5 overflow-x-auto pb-1 text-xs">
-          {chips.map((c) => (
-            <button key={c} onClick={() => void send(c)} className="shrink-0 rounded-full border border-border/60 bg-secondary/40 px-3 py-1 text-muted-foreground hover:text-foreground">{c}</button>
-          ))}
+        <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border px-4">
+          <NexusOrb size={38} />
+          <div className="min-w-0 flex-1 leading-tight">
+            <p className="flex items-center gap-1 font-display font-bold">Nexus <BadgeCheck className="h-4 w-4 fill-primary text-primary-foreground" /></p>
+            <p className={`truncate text-xs ${state === "idle" ? "text-muted-foreground" : "busy-glow text-primary"}`}>{label}</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="grid h-10 w-10 place-items-center rounded-full hover:bg-secondary"><X className="h-5 w-5" /></button>
         </div>
-
-        <form onSubmit={(e) => { e.preventDefault(); void send(input); }} className="flex items-center gap-2">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask Nexus anything about your course…"
-            className="flex-1 rounded-2xl border border-border/60 bg-secondary/50 px-4 py-2.5 text-sm focus:border-primary focus:outline-none"
-          />
-          <button
-            type="button"
-            onClick={() => { if (holding) void stopVoiceRec(); else void startVoice(); }}
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition ${holding ? "bg-destructive text-destructive-foreground animate-pulse" : "bg-secondary text-foreground"}`}
-            aria-label={holding ? "Stop recording" : "Speak to Nexus"}
-          >
-            <Mic className="h-4 w-4" />
-          </button>
-          <button
-            type="submit"
-            disabled={!input.trim() || state === "thinking"}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-40"
-            aria-label="Send message"
-          >
-            <Send className="h-4 w-4" />
-          </button>
-        </form>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+          <div className="space-y-5">
+            {msgs.map((m, i) => m.from === "me" ? (
+              <div key={i} className="flex justify-end"><p className="max-w-[85%] whitespace-pre-wrap rounded-3xl bg-primary px-4 py-2.5 text-[16px] leading-relaxed text-primary-foreground">{m.text}</p></div>
+            ) : (
+              <div key={i} className="flex gap-3">
+                <Avatar faculty={faculty} size={30} />
+                <div className="min-w-0 flex-1 pt-1">
+                  <RichText text={m.text} fresh={m.fresh !== false} />
+                </div>
+              </div>
+            ))}
+            {(state === "thinking" || state === "voice") && (
+              <div className="flex items-center gap-3"><Avatar faculty={faculty} size={30} /><span className="typing-dots" aria-label="Nexus is typing"><i /><i /><i /></span><span className="text-xs text-muted-foreground">{state === "voice" ? "Preparing voice…" : "Thinking…"}</span></div>
+            )}
+          </div>
+          <div ref={end} />
+        </div>
+        <div className="shrink-0 px-3 pb-[max(env(safe-area-inset-bottom),12px)] pt-2">
+          <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
+            {chips.map((c) => <button key={c} onClick={() => send(c)} className="shrink-0 rounded-full border border-border bg-secondary/40 px-3 py-1.5 text-xs hover:bg-secondary">{c}</button>)}
+          </div>
+          <form onSubmit={(e) => { e.preventDefault(); void send(input); }} className="rounded-3xl border border-border bg-input/40 p-2 focus-within:border-primary/60">
+            <textarea ref={box} value={input} rows={2} onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && window.matchMedia("(pointer: fine)").matches) { e.preventDefault(); void send(input); } }}
+              placeholder="Ask Nexus anything about your course…"
+              className="block max-h-[180px] min-h-[52px] w-full resize-none bg-transparent px-2 py-1.5 text-[16px] leading-relaxed outline-none" />
+            <div className="mt-1 flex items-center justify-between">
+              <button
+                type="button"
+                aria-label="Tap to talk"
+                onClick={() => { if (state === "thinking" || voice !== "off") return; unlockVoice(); void startHold(0); }}
+                style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
+                className="flex h-10 shrink-0 select-none items-center gap-2 rounded-full bg-secondary px-3 text-sm font-medium hover:bg-secondary/70"
+              >
+                <Mic className="h-4 w-4" /> Tap to talk
+              </button>
+              <button type="submit" disabled={!input.trim() || state === "thinking"} aria-label="Send" className="grid h-10 w-10 place-items-center rounded-full bg-primary text-primary-foreground disabled:opacity-40"><Send className="h-4 w-4" /></button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );
 }
 
-function QuizModal({ lesson, course, level, onClose }: { lesson: Lesson; course: string; level: Level; onClose: () => void }) {
-  const [qs, setQs] = useState<QuizQ[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [answers, setAnswers] = useState<Record<number, number>>({});
-  const [done, setDone] = useState(false);
-
-  useEffect(() => {
-    void makeQuiz({ data: { course, level, code: lesson.code, topic: lesson.title } }).then((r) => {
-      setQs(r.questions);
-      setLoading(false);
-    });
-  }, [course, level, lesson.code, lesson.title]);
-
-  const score = Object.entries(answers).filter(([idx, ans]) => qs[Number(idx)]?.correct === ans).length;
-
+function Quiz({ lesson, level, onClose }: { lesson: Lesson; level: Level; onClose: () => void }) {
+  const [diff, setDiff] = useState<"easy" | "medium" | "hard" | null>(null);
+  const [qs, setQs] = useState<QuizQ[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [i, setI] = useState(0);
+  const [pick, setPick] = useState<number | null>(null);
+  const [score, setScore] = useState(0);
+  const start = async (d: "easy" | "medium" | "hard") => {
+    setDiff(d); setQs(null); setErr(null); setI(0); setPick(null); setScore(0);
+    if (!navigator.onLine) { setErr("You're offline. Quizzes need internet — your lesson is still saved."); return; }
+    try {
+      const r = await makeQuiz({ data: { title: lesson.title, code: lesson.code, body: `${lesson.body}\nTrick: ${lesson.trick}\nTrap: ${lesson.trap}`, level, difficulty: d } });
+      if (r.questions.length) setQs(r.questions);
+      else setErr(r.error === "busy" ? "Many students are practising now. Try again in a few seconds." : "Couldn't build this quiz. Tap a level to try again.");
+    } catch { setErr("Connection dropped. Tap a level to try again."); }
+  };
+  const q = qs?.[i];
+  const done = qs && i >= qs.length;
   return (
-    <div role="dialog" aria-modal="true" aria-label="Practice Quiz" className="fixed inset-0 z-50 flex flex-col bg-graphite">
-      <div className="flex h-14 items-center justify-between border-b border-border/40 px-4">
-        <button onClick={onClose} className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground"><ArrowLeft className="h-4 w-4" /> Exit Quiz</button>
-        <span className="font-mono text-xs font-bold text-primary">{lesson.code} Quiz</span>
-        <button onClick={onClose} className="rounded-full p-1.5 text-muted-foreground"><X className="h-5 w-5" /></button>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
-        <div className="mx-auto max-w-xl space-y-4 pb-12">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center text-muted-foreground">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="mt-3 text-sm">Preparing 4 revision questions on {lesson.title}…</p>
-            </div>
-          ) : qs.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground">
-              <p>Couldn't generate quiz right now. Try again in a moment.</p>
-            </div>
-          ) : (
-            <>
-              {qs.map((q, i) => (
-                <div key={i} className="card-solid space-y-2 rounded-2xl p-4">
-                  <p className="text-sm font-semibold text-foreground/95">{i + 1}. {q.q}</p>
-                  <div className="space-y-1.5">
-                    {q.options.map((opt, oIdx) => {
-                      const sel = answers[i] === oIdx;
-                      const isCorrect = done && q.correct === oIdx;
-                      const isWrong = done && sel && q.correct !== oIdx;
-                      return (
-                        <button
-                          key={oIdx}
-                          disabled={done}
-                          onClick={() => setAnswers((a) => ({ ...a, [i]: oIdx }))}
-                          className={`flex w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-xs font-medium transition ${
-                            isCorrect ? "bg-primary/20 text-primary border border-primary/40" :
-                            isWrong ? "bg-destructive/20 text-destructive border border-destructive/40" :
-                            sel ? "bg-primary text-primary-foreground" : "bg-secondary/60 text-foreground"
-                          }`}
-                        >
-                          <span>{opt}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {done && q.explain && <p className="pt-1 text-xs text-muted-foreground">{q.explain}</p>}
-                </div>
-              ))}
-
-              {!done ? (
-                <button
-                  disabled={Object.keys(answers).length < qs.length}
-                  onClick={() => setDone(true)}
-                  className="flex w-full items-center justify-center rounded-2xl bg-primary py-3 font-bold text-primary-foreground disabled:opacity-40"
-                >
-                  Submit & Check Answers
-                </button>
-              ) : (
-                <div className="card-solid rounded-2xl p-4 text-center space-y-2">
-                  <p className="font-display text-xl font-bold">You scored {score} / {qs.length}</p>
-                  <p className="text-xs text-muted-foreground">{score >= 3 ? "Excellent work! Ready for exam revision." : "Review the lesson again to strengthen this topic."}</p>
-                  <button onClick={onClose} className="mt-2 w-full rounded-xl bg-secondary py-2.5 text-xs font-semibold">Done</button>
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-background/85 animate-fade sm:items-center sm:p-4" onClick={onClose}>
+      <div className="card-solid flex max-h-[90dvh] w-full max-w-lg flex-col rounded-t-[2rem] p-5 sm:rounded-[2rem]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0"><p className="text-xs font-bold uppercase tracking-widest text-gold">Practice quiz · {lesson.code}</p><p className="truncate font-display text-lg font-bold">{lesson.title}</p></div>
+          <button onClick={onClose} aria-label="Close" className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-secondary"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          {(["easy", "medium", "hard"] as const).map((d) => <button key={d} onClick={() => start(d)} className={`rounded-xl py-2.5 text-sm font-semibold capitalize ${diff === d ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>{d}</button>)}
+        </div>
+        <div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {!diff && <p className="text-sm text-muted-foreground">Pick a level. Nexus writes 4 fresh questions with explanations.</p>}
+          {diff && !qs && !err && <div className="flex items-center gap-3 py-6"><span className="typing-dots"><i /><i /><i /></span><span className="busy-glow text-sm text-primary">Writing your questions…</span></div>}
+          {err && <p className="rounded-2xl bg-warning/15 p-4 text-sm">{err}</p>}
+          {q && (
+            <div>
+              <p className="text-xs text-muted-foreground">Question {i + 1} of {qs.length}</p>
+              <p className="mt-1 text-[17px] font-semibold leading-snug">{q.q}</p>
+              <div className="mt-3 space-y-2">
+                {q.options.map((o, k) => {
+                  const state = pick === null ? "" : k === q.answer ? "border-emerald bg-emerald/15" : k === pick ? "border-destructive bg-destructive/15" : "opacity-60";
+                  return <button key={k} disabled={pick !== null} onClick={() => { setPick(k); if (k === q.answer) setScore((x) => x + 1); }} className={`w-full rounded-2xl border border-border px-4 py-3 text-left text-[15px] ${state}`}>{o}</button>;
+                })}
+              </div>
+              {pick !== null && (
+                <div className="mt-3 rounded-2xl bg-secondary/60 p-4 text-[15px] leading-relaxed">
+                  <p className="font-semibold">{pick === q.answer ? "Correct." : "Not quite."}</p><p className="mt-1">{q.why}</p>
+                  <button onClick={() => { setI(i + 1); setPick(null); }} className="mt-3 w-full rounded-xl bg-primary py-2.5 font-semibold text-primary-foreground">{i + 1 < qs.length ? "Next question" : "See score"}</button>
                 </div>
               )}
-            </>
+            </div>
+          )}
+          {done && (
+            <div className="py-4 text-center">
+              <p className="font-display text-4xl font-bold">{score}/{qs.length}</p>
+              <p className="mt-2 text-sm text-muted-foreground">{score === qs.length ? "Perfect. You own this topic." : score >= qs.length / 2 ? "Good. Read the exam trap once more and retry." : "Read the lesson again, then try Easy first."}</p>
+              <button onClick={() => diff && start(diff)} className="mt-4 rounded-xl bg-primary px-5 py-2.5 font-semibold text-primary-foreground">New questions</button>
+            </div>
           )}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function Author({ faculty, name, meta, gold = false }: { faculty?: string; name: ReactNode; meta: string; gold?: boolean }) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <div className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold ${gold ? "bg-gold text-graphite" : "bg-primary text-primary-foreground"}`}>
-        {gold ? <Sparkles className="h-4 w-4" /> : faculty ? faculty.slice(0, 2).toUpperCase() : "FN"}
-      </div>
-      <div className="leading-tight">
-        <div className="flex items-center gap-1 font-semibold text-sm">
-          {name}
-          <BadgeCheck className={`h-4 w-4 ${gold ? "text-gold" : "text-primary"}`} />
-        </div>
-        <p className="text-[11px] text-muted-foreground">{meta}</p>
       </div>
     </div>
   );
