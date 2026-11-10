@@ -25,63 +25,79 @@ const NEWS = {
   ],
 };
 
+/** One shared player. Server voice (Deepgram Aura-2 → Deepgram backup → Microsoft) online; KittenTTS on-device offline. */
 let player: HTMLAudioElement | null = null;
 let node: AudioBufferSourceNode | null = null;
+let ac: AudioContext | null = null;
+let unlocked = false;
 
-function unlockVoice() {
-  if (player) return;
-  player = new Audio();
-  player.playsInline = true;
-  player.preload = "auto";
-  player.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
-  player.play().catch(() => {});
+/** Call synchronously inside a user tap: unlocks programmatic audio on mobile browsers, so the voice still plays after the server reply arrives. */
+export function unlockVoice() {
+  try {
+    ac ??= new AudioContext();
+    void ac.resume();
+    const s = ac.createBufferSource();
+    s.buffer = ac.createBuffer(1, 1, 22050);
+    s.connect(ac.destination);
+    s.start(0);
+    unlocked = true;
+  } catch { unlocked = false; }
 }
 
+let voiceToken = 0;
 async function playVoice(text: string, onEnd?: () => void): Promise<boolean> {
   stopVoice();
-  if (!navigator.onLine || kittenReady()) {
-    try {
-      const b = await speakOffline(text);
-      if (b) { node = b; b.onended = () => { node = null; onEnd?.(); }; return true; }
-    } catch (e) { console.error("offline voice err", e); }
-  }
-  const t = speechText(text);
-  const r = await speak({ data: { text: t } }).catch(() => ({ audio: null, mime: null }));
-  if (!r.audio) return false;
-  const p = player ?? new Audio();
-  player = p;
-  p.onended = () => { onEnd?.(); };
-  p.onerror = () => { onEnd?.(); };
-  p.src = `data:${r.mime || "audio/mpeg"};base64,${r.audio}`;
-  await p.play();
-  return true;
+  const my = ++voiceToken;
+  if (!navigator.onLine) return speakOffline(text, onEnd, ac);
+  try {
+    const { audio, mime } = await speak({ data: { text } });
+    if (my !== voiceToken) return true;
+    if (audio) {
+      if (unlocked && ac) {
+        const bin = atob(audio);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const buf = await ac.decodeAudioData(bytes.buffer as ArrayBuffer);
+        const n = ac.createBufferSource();
+        n.buffer = buf;
+        n.connect(ac.destination);
+        n.onended = () => onEnd?.();
+        n.start();
+        node = n;
+        return true;
+      }
+      const a = new Audio(`data:${mime};base64,${audio}`);
+      player = a;
+      a.onended = () => onEnd?.();
+      await a.play();
+      return true;
+    }
+  } catch { /* online voice failed */ }
+  return my === voiceToken && kittenReady() ? speakOffline(text, onEnd, ac) : false;
+}
+const stopVoice = () => { voiceToken++; try { node?.stop(); } catch { /* already stopped */ } node = null; player?.pause(); player = null; stopKitten(); };
+
+async function sharePost(id: string, title: string) {
+  const url = `${window.location.origin}/?post=${id}`;
+  const text = `${title} — on FUTES Nexus`;
+  try { if (navigator.share) { await navigator.share({ title, text, url }); return; } }
+  catch (e) { if ((e as Error).name === "AbortError") return; }
+  try { await navigator.clipboard.writeText(`${text}\n${url}`); toast.success("Link copied — paste it in your class group"); }
+  catch { window.open(`https://wa.me/?text=${encodeURIComponent(`${text}\n${url}`)}`, "_blank"); }
 }
 
-function stopVoice() {
-  if (player) { player.pause(); player.currentTime = 0; }
-  if (node) { try { node.stop(); } catch {} node = null; }
-  stopKitten();
+function Avatar({ gold, faculty, size = 32 }: { gold?: boolean | undefined; faculty?: string | undefined; size?: number }) {
+  const src = gold ? "/futes-crest.jpg" : `/ai/${faculty ? groupOf(faculty) : "general"}.jpg`;
+  return <img src={src} alt="" width={size} height={size} style={{ width: size, height: size }} className={`shrink-0 rounded-full object-cover ring-2 ${gold ? "ring-gold" : "ring-primary/70"}`} />;
 }
 
+const HUES = [205, 258, 300, 340, 20, 55, 95, 150, 185];
+/** Course name with every letter in a different colour (AI profile identity). */
 function CourseName({ name }: { name: string }) {
-  return <span className="font-semibold">{name}</span>;
+  return <>{[...name].map((ch, i) => <span key={i} style={{ color: ch === " " ? undefined : `oklch(0.78 0.16 ${HUES[i % HUES.length]})` }}>{ch}</span>)}</>;
 }
-
-function Avatar({ gold, faculty, size = 32 }: { gold?: boolean | undefined; faculty?: string | undefined; size?: number | undefined }) {
-  const g = groupOf(faculty);
-  const I = ICONS[g.icon];
-  return (
-    <div
-      style={{ width: size, height: size }}
-      className={`grid shrink-0 place-items-center rounded-xl shadow-inner ${gold ? "bg-gradient-to-br from-gold to-amber-600 text-graphite" : "bg-gradient-to-br from-primary to-accent text-primary-foreground"}`}
-    >
-      <I style={{ width: size * 0.52, height: size * 0.52 }} />
-    </div>
-  );
-}
-
-function timeAgo(ts: number) {
-  const m = Math.max(1, Math.round((Date.now() - ts) / 60000));
+function timeAgo(at: number) {
+  const m = Math.max(1, Math.round((Date.now() - at) / 60000));
   return m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`;
 }
 
@@ -139,17 +155,11 @@ function Actions({ playing, loading, onListen, onView, onShare, viewLabel = "Rea
 function NexusOrb({ size }: { size: number }) {
   return (
     <span className="jarvis block" style={{ width: size, height: size }}>
+      <span className="jarvis-ring" style={{ inset: 3 }} />
+      <span className="jarvis-ring-rev" style={{ inset: size * 0.17 }} />
       <span className="jarvis-core" />
-      <span className="jarvis-ring-1" />
-      <span className="jarvis-ring-2" />
     </span>
   );
-}
-
-function sharePost(id: string, title: string) {
-  const u = `${window.location.origin}/?post=${id}`;
-  if (navigator.share) void navigator.share({ title, text: `Check this on FUTES Nexus: ${title}`, url: u }).catch(() => {});
-  else { void navigator.clipboard.writeText(u); toast("Link copied to clipboard"); }
 }
 
 const FENCE = /```([a-z0-9_-]*)\n([\s\S]*?)```/gi;
@@ -548,7 +558,7 @@ export function Hub({ profile, onSwitch, onExit }: { profile: Profile; onSwitch:
         </div>
       )}
 
-      {quiz && <QuizModal lesson={quiz} level={profile.level} onClose={() => setQuiz(null)} />}
+      {quiz && <Quiz lesson={quiz} level={profile.level} onClose={() => setQuiz(null)} />}
     </div>
   );
 }
@@ -655,40 +665,36 @@ function Vault({ lessons, course, lvl, faculty, onOpen, onAsk }: { lessons: Less
   );
 }
 
-type Msg = { from: "me" | "nexus"; text: string; fresh?: boolean };
-const CHAT_KEY = (lvl: string, c: string) => `nexus-chat-v2:${lvl}:${c}`;
-
 function NexusModal({ profile, onClose, onOpen, onNote }: { profile: Profile; onClose: () => void; onOpen: (id: string) => void; onNote: (n: string) => void }) {
   const course = courseName(profile.course);
   const faculty = profile.faculty;
-  const storageKey = CHAT_KEY(profile.level, profile.course);
-  const [msgs, setMsgs] = useState<Msg[]>(() => {
+  const storageKey = `nexus-chat-v2:${profile.level}:${profile.course}`;
+  const [msgs, setMsgs] = useState<{ from: "me" | "nexus"; text: string; fresh?: boolean }[]>(() => {
     try {
       const raw = localStorage.getItem(storageKey);
-      if (raw) return JSON.parse(raw) as Msg[];
+      if (raw) return JSON.parse(raw);
     } catch {}
     return [{ from: "nexus", text: `I am your ${profile.level} ${course} tutor. Ask me any question from your syllabus, or tap the mic to speak.`, fresh: false }];
   });
-
   const [input, setInput] = useState("");
   const [state, setState] = useState<"idle" | "thinking" | "voice" | "speaking">("idle");
   const [voice, setVoice] = useState<"off" | "listening" | "cancel">("off");
   const [vol, setVol] = useState<number[]>([1, 1, 1, 1, 1]);
-  const recRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const rec = useRef<MediaRecorder | null>(null);
+  const stream = useRef<MediaStream | null>(null);
   const chunks = useRef<Blob[]>([]);
-  const startY = useRef(0);
-  const box = useRef<HTMLDivElement>(null);
-  const talkRef = useRef(false);
+  const voiceRef = useRef<"off" | "listening" | "cancel">("off");
+  const end = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    box.current?.scrollTo({ top: box.current.scrollHeight, behavior: "smooth" });
+    end.current?.scrollIntoView({ behavior: "smooth" });
     try { localStorage.setItem(storageKey, JSON.stringify(msgs.slice(-20))); } catch {}
   }, [msgs, storageKey]);
 
   useEffect(() => () => {
-    try { recRef.current?.stop(); } catch {}
-    streamRef.current?.getTracks().forEach((t) => t.stop());
+    try { rec.current?.stop(); } catch {}
+    stream.current?.getTracks().forEach((t) => t.stop());
   }, []);
 
   const send = async (txt: string) => {
@@ -699,35 +705,26 @@ function NexusModal({ profile, onClose, onOpen, onNote }: { profile: Profile; on
     try {
       const r = await askJarvis({ data: { message: q, level: profile.level, course, faculty } });
       setState("idle");
-      if (r.reply) {
-        setMsgs((m) => [...m, { from: "nexus", text: r.reply, fresh: true }]);
-        if (talkRef.current) {
-          talkRef.current = false;
-          setState("speaking");
-          void playVoice(r.reply, () => setState("idle"));
-        }
-      }
+      if (r.reply) setMsgs((m) => [...m, { from: "nexus", text: r.reply, fresh: true }]);
       if (r.action) {
         if (r.action.type === "open_post") onOpen(r.action.postId);
         else if (r.action.type === "open_news") onOpen("news");
         else if (r.action.type === "open_vault") onOpen("vault");
         else if (r.action.type === "note") onNote(r.action.text);
       }
-    } catch { setState("idle"); setMsgs((m) => [...m, { from: "nexus", text: "Connection dropped. Tap send to try again." }]); }
+    } catch { setState("idle"); setMsgs((m) => [...m, { from: "nexus", text: "Connection dropped. Try again." }]); }
   };
 
-  const startTalk = async (e: React.TouchEvent | React.MouseEvent) => {
-    e.preventDefault();
+  const startHold = async (y: number) => {
     stopVoice(); unlockVoice();
-    talkRef.current = true;
-    startY.current = "touches" in e ? e.touches[0].clientY : e.clientY;
     chunks.current = [];
+    voiceRef.current = "listening";
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = s;
+      stream.current = s;
       const mr = new MediaRecorder(s, { mimeType: MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : undefined });
-      recRef.current = mr;
-      mr.ondataavailable = (ev) => { if (ev.data.size) chunks.current.push(ev.data); };
+      rec.current = mr;
+      mr.ondataavailable = (e) => { if (e.data.size) chunks.current.push(e.data); };
       mr.start(80);
       setVoice("listening");
       const ctx = new AudioContext();
@@ -736,70 +733,65 @@ function NexusModal({ profile, onClose, onOpen, onNote }: { profile: Profile; on
       an.fftSize = 32; src.connect(an);
       const data = new Uint8Array(an.frequencyBinCount);
       const timer = setInterval(() => {
-        if (!recRef.current || recRef.current.state !== "recording") { clearInterval(timer); void ctx.close(); return; }
+        if (!rec.current || rec.current.state !== "recording") { clearInterval(timer); void ctx.close(); return; }
         an.getByteFrequencyData(data);
         const bars = [data[1], data[3], data[5], data[7], data[9]].map((v) => Math.max(0.18, (v || 0) / 255));
         setVol(bars);
       }, 70);
-    } catch { talkRef.current = false; toast.error("Microphone access denied."); setVoice("off"); }
+    } catch { voiceRef.current = "off"; setVoice("off"); toast.error("Microphone access denied."); }
   };
 
-  const moveTalk = (e: React.TouchEvent | React.MouseEvent) => {
-    if (voice === "off") return;
-    const y = "touches" in e ? e.touches[0].clientY : e.clientY;
-    setVoice(startY.current - y > 60 ? "cancel" : "listening");
-  };
-
-  const endTalk = async () => {
-    if (voice === "off") return;
-    const cancel = voice === "cancel";
+  const endHold = async () => {
+    const cancel = voiceRef.current === "cancel";
+    voiceRef.current = "off";
     setVoice("off");
-    const mr = recRef.current;
+    const mr = rec.current;
     if (mr && mr.state !== "inactive") {
       await new Promise((res) => { mr.onstop = res; mr.stop(); });
     }
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    if (cancel) { talkRef.current = false; toast("Recording cancelled"); return; }
+    stream.current?.getTracks().forEach((t) => t.stop());
+    if (cancel) { toast("Recording cancelled"); return; }
     const mime = mr?.mimeType || "audio/webm";
     const blob = new Blob(chunks.current, { type: mime });
-    if (blob.size < 600) { talkRef.current = false; return; }
+    if (blob.size < 600) return;
     setState("thinking");
     const buf = new Uint8Array(await blob.arrayBuffer());
     let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
     try {
       const { text } = await transcribe({ data: { base64: btoa(bin), mime } });
       if (text) void send(text);
-      else { setState("idle"); toast("Didn't catch that — tap the mic and try again."); }
-    } catch { setState("idle"); toast.error("Voice failed — check your connection."); }
+      else { setState("idle"); toast("Didn't catch that — try again."); }
+    } catch { setState("idle"); toast.error("Voice recognition failed."); }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 backdrop-blur-sm animate-fade sm:items-center sm:p-4" onClick={onClose}>
-      <div className="card-solid relative flex h-[90dvh] w-full max-w-xl flex-col overflow-hidden rounded-t-2xl sm:h-[84dvh] sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="card-solid relative flex h-[88dvh] w-full max-w-xl flex-col overflow-hidden rounded-t-2xl sm:h-[84dvh] sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
         {voice !== "off" && (
           <div className="absolute inset-0 z-20 flex animate-fade flex-col items-center justify-between bg-graphite/95 px-5 pb-8 pt-12">
-            <p className={`text-center text-xs font-medium ${voice === "cancel" ? "text-destructive" : "text-muted-foreground"}`}>{voice === "cancel" ? "Cancelling…" : "Speak now · release to send"}</p>
+            <p className={`text-center text-xs font-medium ${voice === "cancel" ? "text-destructive" : "text-muted-foreground"}`}>{voice === "cancel" ? "Cancelling…" : "Speak now · tap to send"}</p>
             <div aria-hidden className="flex h-20 items-center gap-[3px]">
               {vol.map((v, i) => (
                 <span key={i} className="w-1.5 rounded-full bg-primary transition-all duration-75" style={{ height: `${Math.max(12, v * 70)}px`, opacity: 0.5 + v * 0.5 }} />
               ))}
             </div>
-            <p className="text-[11px] text-muted-foreground">Slide up to cancel</p>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => { voiceRef.current = "cancel"; setVoice("cancel"); void endHold(); }} className="rounded-full border border-border px-4 py-2 text-xs font-semibold">Cancel</button>
+              <button type="button" onClick={() => void endHold()} className="rounded-full bg-primary px-5 py-2 text-xs font-semibold text-primary-foreground">Tap to send</button>
+            </div>
           </div>
         )}
-
-        <div className="flex shrink-0 items-center justify-between border-b border-border/60 bg-graphite px-3.5 py-2.5">
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-3.5">
           <div className="flex items-center gap-2.5">
             <NexusOrb size={32} />
-            <div className="min-w-0 leading-none">
-              <p className="font-display text-sm font-bold">Nexus AI</p>
-              <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{profile.level} · {course}</p>
+            <div className="min-w-0 leading-tight">
+              <p className="flex items-center gap-1 font-display text-sm font-bold">Nexus AI <BadgeCheck className="h-3.5 w-3.5 fill-primary text-primary-foreground" /></p>
+              <p className="truncate text-[10px] text-muted-foreground">{profile.level} · {course}</p>
             </div>
           </div>
           <button onClick={onClose} aria-label="Close" className="grid h-8 w-8 place-items-center rounded-full hover:bg-secondary"><X className="h-4 w-4" /></button>
         </div>
-
-        <div ref={box} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
           <div className="space-y-3">
             {msgs.map((m, i) => m.from === "me" ? (
               <div key={i} className="flex justify-end"><p className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-primary px-3 py-2 text-[13px] leading-relaxed text-primary-foreground">{m.text}</p></div>
@@ -815,24 +807,24 @@ function NexusModal({ profile, onClose, onOpen, onNote }: { profile: Profile; on
               <div className="flex items-center gap-2 text-xs text-primary"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…</div>
             )}
           </div>
+          <div ref={end} />
         </div>
-
-        <div className="shrink-0 border-t border-border/60 bg-graphite p-2.5">
+        <div className="shrink-0 p-2.5 border-t border-border/60 bg-graphite">
           <form onSubmit={(e) => { e.preventDefault(); void send(input); }} className="flex items-center gap-1.5">
             <input
+              ref={box as any}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask anything or hold mic…"
+              placeholder="Ask Nexus anything…"
               className="min-h-[38px] flex-1 rounded-xl border border-border bg-secondary/50 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
             />
             {input.trim() ? (
-              <button type="submit" aria-label="Send" className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground active:scale-95"><Send className="h-3.5 w-3.5" /></button>
+              <button type="submit" disabled={state === "thinking"} aria-label="Send" className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground disabled:opacity-40"><Send className="h-3.5 w-3.5" /></button>
             ) : (
               <button
                 type="button"
-                onMouseDown={startTalk} onMouseMove={moveTalk} onMouseUp={endTalk}
-                onTouchStart={startTalk} onTouchMove={moveTalk} onTouchEnd={endTalk}
-                aria-label="Hold to speak"
+                onClick={() => { if (state === "thinking" || voice !== "off") return; void startHold(0); }}
+                aria-label="Tap to talk"
                 className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary active:scale-95"
               >
                 <Mic className="h-4 w-4" />
@@ -845,21 +837,22 @@ function NexusModal({ profile, onClose, onOpen, onNote }: { profile: Profile; on
   );
 }
 
-function QuizModal({ lesson, level, onClose }: { lesson: Lesson; level: string; onClose: () => void }) {
+function Quiz({ lesson, level, onClose }: { lesson: Lesson; level: Level; onClose: () => void }) {
+  const [diff, setDiff] = useState<"easy" | "medium" | "hard" | null>(null);
   const [qs, setQs] = useState<QuizQ[] | null>(null);
-  const [i, setI] = useState(0);
-  const [score, setScore] = useState(0);
-  const [pick, setPick] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [i, setI] = useState(0);
+  const [pick, setPick] = useState<number | null>(null);
+  const [score, setScore] = useState(0);
 
   const start = async (d: "easy" | "medium" | "hard") => {
-    setLoading(true); setErr(null); setQs(null); setI(0); setScore(0); setPick(null);
+    setDiff(d); setQs(null); setErr(null); setI(0); setPick(null); setScore(0);
+    if (!navigator.onLine) { setErr("You're offline. Quizzes need internet."); return; }
     try {
       const r = await makeQuiz({ data: { title: lesson.title, code: lesson.code, body: `${lesson.body}\nTrick: ${lesson.trick}\nTrap: ${lesson.trap}`, level, difficulty: d } });
       if (r.questions.length) setQs(r.questions);
-      else setErr("Couldn't build quiz. Tap a level to try again.");
-    } catch { setErr("Connection dropped. Try again."); } finally { setLoading(false); }
+      else setErr("Couldn't build quiz. Tap to try again.");
+    } catch { setErr("Connection dropped. Tap to try again."); }
   };
 
   const q = qs?.[i];
@@ -872,80 +865,41 @@ function QuizModal({ lesson, level, onClose }: { lesson: Lesson; level: string; 
           <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wider text-gold">Quiz · {lesson.code}</p><p className="truncate font-display text-sm font-bold">{lesson.title}</p></div>
           <button onClick={onClose} aria-label="Close" className="grid h-8 w-8 shrink-0 place-items-center rounded-full hover:bg-secondary"><X className="h-4 w-4" /></button>
         </div>
-
-        {!qs && !loading && (
-          <div className="mt-4 space-y-2">
-            <p className="text-xs text-muted-foreground">Pick your practice difficulty:</p>
-            <div className="grid grid-cols-3 gap-2">
-              <button onClick={() => void start("easy")} className="rounded-xl border border-border bg-secondary/50 py-2.5 text-xs font-semibold hover:border-primary">Easy</button>
-              <button onClick={() => void start("medium")} className="rounded-xl border border-border bg-secondary/50 py-2.5 text-xs font-semibold hover:border-primary">Medium</button>
-              <button onClick={() => void start("hard")} className="rounded-xl border border-border bg-secondary/50 py-2.5 text-xs font-semibold hover:border-primary">Past Qs</button>
-            </div>
-            {err && <p className="mt-2 text-center text-xs text-destructive">{err}</p>}
-          </div>
-        )}
-
-        {loading && (
-          <div className="flex flex-col items-center justify-center py-10">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
-            <p className="mt-2 text-xs text-muted-foreground">Preparing practice questions…</p>
-          </div>
-        )}
-
-        {q && !done && (
-          <div className="mt-3 space-y-3">
-            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>Question {i + 1} of {qs.length}</span>
-              <span>Score: {score}</span>
-            </div>
-            <p className="text-xs font-semibold leading-relaxed">{q.q}</p>
-            <div className="space-y-1.5">
-              {q.options.map((opt, idx) => {
-                const isSelected = pick === idx;
-                const isRight = pick !== null && idx === q.answer;
-                const isWrong = isSelected && idx !== q.answer;
-                return (
-                  <button
-                    key={idx}
-                    disabled={pick !== null}
-                    onClick={() => {
-                      setPick(idx);
-                      if (idx === q.answer) setScore((s) => s + 1);
-                    }}
-                    className={`flex w-full items-center justify-between rounded-xl border p-2.5 text-left text-xs transition-colors ${
-                      isRight ? "border-emerald bg-emerald/15 font-semibold text-emerald" :
-                      isWrong ? "border-destructive bg-destructive/15 text-destructive" :
-                      "border-border bg-secondary/40 hover:bg-secondary/70"
-                    }`}
-                  >
-                    <span>{opt}</span>
-                    {isRight && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald" />}
-                  </button>
-                );
-              })}
-            </div>
-            {pick !== null && (
-              <div className="mt-2 space-y-2 rounded-xl bg-secondary/50 p-2.5 text-[11px]">
-                <p className="leading-relaxed">{q.why}</p>
-                <button
-                  onClick={() => { setI((cur) => cur + 1); setPick(null); }}
-                  className="w-full rounded-lg bg-primary py-1.5 text-xs font-semibold text-primary-foreground"
-                >
-                  {i + 1 < qs.length ? "Next question" : "See results"}
-                </button>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {(["easy", "medium", "hard"] as const).map((d) => <button key={d} onClick={() => void start(d)} className={`rounded-xl py-2 text-xs font-semibold capitalize ${diff === d ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>{d}</button>)}
+        </div>
+        <div className="mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {!diff && <p className="text-xs text-muted-foreground">Pick a difficulty level to practice.</p>}
+          {diff && !qs && !err && <div className="flex items-center gap-2 py-6 text-xs text-primary"><Loader2 className="h-4 w-4 animate-spin" /> Preparing quiz…</div>}
+          {err && <p className="rounded-xl bg-destructive/15 p-3 text-xs text-destructive">{err}</p>}
+          {q && (
+            <div>
+              <p className="text-[11px] text-muted-foreground">Question {i + 1} of {qs.length}</p>
+              <p className="mt-1 text-xs font-semibold leading-relaxed">{q.q}</p>
+              <div className="mt-2.5 space-y-1.5">
+                {q.options.map((o, k) => {
+                  const state = pick === null ? "border-border bg-secondary/40" : k === q.answer ? "border-emerald bg-emerald/15 font-semibold text-emerald" : k === pick ? "border-destructive bg-destructive/15 text-destructive" : "opacity-60";
+                  return <button key={k} disabled={pick !== null} onClick={() => { setPick(k); if (k === q.answer) setScore((x) => x + 1); }} className={`w-full rounded-xl border p-2.5 text-left text-xs ${state}`}>{o}</button>;
+                })}
               </div>
-            )}
-          </div>
-        )}
-
-        {done && (
-          <div className="mt-4 space-y-3 text-center">
-            <Sparkles className="mx-auto h-7 w-7 text-gold" />
-            <p className="font-display text-base font-bold">Quiz Complete!</p>
-            <p className="text-xs text-muted-foreground">You scored {score} out of {qs.length}</p>
-            <button onClick={() => setQs(null)} className="w-full rounded-xl bg-primary py-2 text-xs font-semibold text-primary-foreground">Practice again</button>
-          </div>
-        )}
+              {pick !== null && (
+                <div className="mt-2.5 rounded-xl bg-secondary/50 p-2.5 text-[11px] leading-relaxed">
+                  <p className="font-semibold">{pick === q.answer ? "Correct." : "Not quite."}</p>
+                  <p className="mt-0.5">{q.why}</p>
+                  <button onClick={() => { setI(i + 1); setPick(null); }} className="mt-2.5 w-full rounded-lg bg-primary py-1.5 text-xs font-semibold text-primary-foreground">{i + 1 < qs.length ? "Next question" : "See score"}</button>
+                </div>
+              )}
+            </div>
+          )}
+          {done && (
+            <div className="py-4 text-center">
+              <Sparkles className="mx-auto h-7 w-7 text-gold" />
+              <p className="mt-2 font-display text-base font-bold">{score}/{qs.length}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{score === qs.length ? "Full score! Mastered." : "Keep practising."}</p>
+              <button onClick={() => diff && void start(diff)} className="mt-3 rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground">Retry</button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
