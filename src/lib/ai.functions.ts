@@ -50,7 +50,6 @@ type ChatMsg = { role: "system" | "user" | "assistant"; content: string };
 let cursor = 0;
 async function chat(keys: string[], clean: string | undefined, messages: ChatMsg[], opts: { json?: boolean; max?: number } = {}): Promise<string | null> {
   const n = keys.length;
-  // Fast Qwen first (~200ms, no thinking), GPT-OSS as same-key backup.
   const models = [{ model: "qwen/qwen3.8-27b", reasoning_effort: "none" }, { model: "openai/gpt-oss-20b", reasoning_effort: "low" }];
   for (let i = 0; i < n; i++) {
     const key = keys[(cursor + i) % n]!;
@@ -60,7 +59,7 @@ async function chat(keys: string[], clean: string | undefined, messages: ChatMsg
           method: "POST", signal: AbortSignal.timeout(9000),
           headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            ...m, temperature: 0.6, max_tokens: opts.max ?? 700, messages,
+            ...m, temperature: 0.6, max_tokens: opts.max ?? 1200, messages,
             ...(opts.json ? { response_format: { type: "json_object" } } : {}),
           }),
         });
@@ -70,7 +69,7 @@ async function chat(keys: string[], clean: string | undefined, messages: ChatMsg
           if (t) { cursor = (cursor + i + 1) % n; return t; }
         } else {
           console.error("groq", m.model, res.status);
-          if (res.status === 429) break; // this key is rate-limited: next key
+          if (res.status === 429) break;
         }
       } catch (e) { console.error("groq err", e); }
     }
@@ -81,7 +80,7 @@ async function chat(keys: string[], clean: string | undefined, messages: ChatMsg
       const res = await fetch("https://cleanapis.com/v1/chat/completions", {
         method: "POST", signal: AbortSignal.timeout(12000),
         headers: { Authorization: `Bearer ${clean}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model, temperature: 0.6, max_tokens: opts.max ?? 700, messages, ...(opts.json ? { response_format: { type: "json_object" } } : {}) }),
+        body: JSON.stringify({ model, temperature: 0.6, max_tokens: opts.max ?? 1200, messages, ...(opts.json ? { response_format: { type: "json_object" } } : {}) }),
       });
       if (!res.ok) { console.error("cleanapis", model, res.status); continue; }
       const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
@@ -122,13 +121,13 @@ Always plain text: no asterisks, hashtags, bullet symbols or emojis. Explain any
 
 export type AIPost = { title: string; hook: string; body: string; steps: string[]; example: string; trick: string; trap: string; points: string[]; say: string };
 
-const POST_RULES = `Teaching style (this is what makes students understand in one go):
-1. Core definition first: state the fundamental concept clearly and directly in standard academic English. Short sentences under 15 words. Explain every technical term immediately. Never force street slang, danfo, suya, or informal market analogies.
-2. Clear mechanism: explain step-by-step how and why it works using natural, accurate examples relevant to their field of study.
-3. One small worked example with real numbers, realistic code, or an authentic case study.
-4. Memory hook: a vivid logical image, practical association, or short clear rule that makes sense in proper English. Never a forced acronym or broken English.
-5. Exam trap: the exact mistake lecturers catch in exams, and the clear rule to avoid it.
-Plain text only. No asterisks, hashtags, emojis or markdown.`;
+const POST_RULES = `Teaching style (article-length, deep, fully detailed so a student masters it in two reads):
+1. Definition: State the foundational concept clearly and directly in standard academic English. Short sentences under 15 words. Explain any technical term immediately. Strictly no street slang, danfo, suya, or informal market analogies.
+2. When it was found (Origin): State who formalized or discovered it, the era or approximate year, and the real practical problem they needed to solve.
+3. Explanation and How it works: Give the step-by-step mechanism and underlying logic. Explain why it behaves the way it does using natural, accurate examples relevant to their course.
+4. How it helps (Practical utility): Explain where and how it is applied in industry, engineering, science, or environmental practice, including authentic Nigerian context where relevant.
+5. What lecturers test (Exam trap): The exact mistake students make on university exams, and the clear rule to avoid it.
+Plain text only. No asterisks, hashtags, emojis or markdown symbols.`;
 
 /** Writes one scheme-of-work lesson post and stores it in the shared library so every domain sees it. */
 export const generatePost = createServerFn({ method: "POST" })
@@ -138,14 +137,31 @@ export const generatePost = createServerFn({ method: "POST" })
   }))
   .handler(async ({ data }) => {
     const none = { post: null as AIPost | null, id: null as string | null };
-    const system = `You write lesson posts for FUTES Nexus, a study feed for Nigerian university students, following the NUC CCMAS scheme of work. The reader is a ${data.level} ${data.course} student who finds this topic hard. Stay strictly on the given course code and topic, but frame every picture, example and use-case around what a ${data.course} student will actually do in that career, so students of other departments taking the same course get a different angle.
+    const system = `You write deep, comprehensive academic lesson articles for FUTES Nexus, a study feed for Nigerian university students, following the official NUC CCMAS scheme of work. The reader is a ${data.level} ${data.course} student. Stay strictly on the given course code and topic, and frame every example and use-case around what a ${data.course} professional actually does.
 ${POST_RULES}
-Reply ONLY with JSON: {"title": catchy title max 8 words, "hook": one sentence on why this matters in real life, "body": 150-220 words in 3 short paragraphs separated by \n\n (core concept, plain rule, why it works), "steps": 3-5 short steps, "example": one worked example max 70 words, "trick": the memory hook, "trap": the exam mistake and the fix, "points": exactly 3 key points max 8 words each, "say": a 40-60 word spoken summary a coursemate would say out loud (core concept, rule, memory hook)}.`;
+Write the body as 4 full, substantive paragraphs separated by double linebreaks:
+Paragraph 1: Clear, formal academic definition.
+Paragraph 2: Discovery and historical origin (when it was found, who began it, and why).
+Paragraph 3: Complete explanation of how and why it works step by step.
+Paragraph 4: Practical importance in real-world industry and Nigerian practice.
+
+Reply ONLY with JSON in this exact structure:
+{
+  "title": "Clear academic title under 8 words",
+  "hook": "One sentence stating why this topic is essential in real life",
+  "body": "The 4 detailed paragraphs separated by \\n\\n (around 220-320 words total)",
+  "steps": ["Step 1 explanation", "Step 2 explanation", "Step 3 explanation", "Step 4 explanation"],
+  "example": "One realistic worked example with specific numbers, code, or field case study under 70 words",
+  "trick": "One logical memory aid in proper English",
+  "trap": "The exact exam mistake and how to avoid it",
+  "points": ["Three key points to remember", "Second point", "Third point"],
+  "say": "A smooth spoken summary of the definition, how it works, and the exam rule written in short 10-14 word sentences so the voice reads it fluently without stumbling (around 60-90 words)"
+}`;
 
     const raw = await chat(groqKeys(), process.env["CLEANAPIS_API_KEY"], [
       { role: "system", content: system },
       { role: "user", content: `${data.code} ${data.courseTitle} — topic: ${data.topic}` },
-    ], { json: true, max: 1400 });
+    ], { json: true, max: 1500 });
     if (!raw) return none;
 
     let post: AIPost;
@@ -218,35 +234,30 @@ export const makeQuiz = createServerFn({ method: "POST" })
     try {
       const text = await chat(groqKeys(), process.env["CLEANAPIS_API_KEY"], [
         { role: "system", content: `You set practice questions for ${data.level} Nigerian university students. Write exactly 4 multiple-choice questions on the lesson. Difficulty: ${level}. Each has 4 short options and one correct answer (index 0-3). The explanation is 1-2 plain sentences. Plain text, no markdown. Reply ONLY with JSON: {"questions":[{"q":"...","options":["a","b","c","d"],"answer":0,"why":"..."}]}` },
-        { role: "user", content: `${data.code}: ${data.title}\n\n${data.body}` },
-      ], { json: true, max: 1200 });
-      if (!text) return { questions: [] as QuizQ[], error: "busy" as "busy" | "empty" | "failed" | null };
+        { role: "user", content: `${data.code} — ${data.title}\n\n${data.body}` },
+      ], { json: true, max: 700 });
+      if (!text) return { questions: [] as QuizQ[] };
       const j = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as { questions?: QuizQ[] };
-      const qs = (j.questions ?? []).filter((q) => q.q && Array.isArray(q.options) && q.options.length >= 2 && typeof q.answer === "number").slice(0, 5)
-        .map((q) => ({ q: cleanText(q.q), options: q.options.map((o) => cleanText(String(o))).slice(0, 4), answer: Math.max(0, Math.min(3, q.answer)), why: cleanText(String(q.why ?? "")) }));
-      return { questions: qs, error: qs.length ? null : "empty" };
-    } catch (e) {
-      console.error("quiz", e);
-      return { questions: [] as QuizQ[], error: "failed" };
-    }
+      const qs = Array.isArray(j.questions) ? j.questions.filter((q) => q.q && Array.isArray(q.options) && q.options.length === 4 && typeof q.answer === "number" && q.why).slice(0, 4) : [];
+      return { questions: qs };
+    } catch { return { questions: [] as QuizQ[] }; }
   });
 
-/** Phrases speech engines invent from silence; never sent to the chat box. */
-export function isGhostTranscript(t: string): boolean {
-  const s = t.toLowerCase().replace(/[^a-z ]/g, "").trim();
-  return !s || /^(thank you|thanks|thank you for watching|bye|you|uh|um|hmm)( so much)?$/.test(s);
-}
+// Groq Whisper cuts sentences and hallucinates "Thank you" — reject ghost transcripts.
+const isGhostTranscript = (t: string) => /^(thank you|thanks for watching|subscribe|subtitles by|you)\.?$/i.test(t.trim());
 
-/** Speech-to-text: Deepgram Nova-3, then Nova-2. Never Groq. */
+/** Speech-to-text: Deepgram Nova-3 → Nova-2. Never Groq. */
 export const transcribe = createServerFn({ method: "POST" })
-  .inputValidator((d: { audio: string; mime: string }) => ({ audio: String(d.audio ?? ""), mime: String(d.mime ?? "audio/webm") }))
+  .inputValidator((d: { base64: string; mime: string }) => ({
+    base64: String(d.base64 ?? "").slice(0, 3_000_000),
+    mime: String(d.mime ?? "audio/webm").slice(0, 40),
+  }))
   .handler(async ({ data }) => {
     const dg = process.env["DEEPGRAM_API_KEY"];
-    if (!data.audio || !dg) return { text: null as string | null };
-    const bin = atob(data.audio);
+    if (!dg || !data.base64) return { text: null as string | null };
+    const bin = atob(data.base64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    if (bytes.length < 2000) return { text: null as string | null }; // too short to be speech
     for (const model of ["nova-3", "nova-2"]) {
       try {
         const res = await fetch(`https://api.deepgram.com/v1/listen?model=${model}&language=en&smart_format=true&punctuate=true`, {
@@ -265,7 +276,7 @@ export const transcribe = createServerFn({ method: "POST" })
 
 /** Text-to-speech: Deepgram Aura-2 → second Deepgram voice → Microsoft neural. Never Groq, never browser. */
 export const speak = createServerFn({ method: "POST" })
-  .inputValidator((d: { text: string }) => ({ text: speakable(String(d.text ?? "")).slice(0, 600) }))
+  .inputValidator((d: { text: string }) => ({ text: speakable(String(d.text ?? "")).slice(0, 3000) }))
   .handler(async ({ data }) => {
     const none = { audio: null as string | null, mime: "audio/mpeg" };
     if (!data.text) return none;
@@ -274,7 +285,7 @@ export const speak = createServerFn({ method: "POST" })
       for (const model of ["aura-2-thalia-en", "aura-asteria-en"]) {
         try {
           const res = await fetch(`https://api.deepgram.com/v1/speak?model=${model}&encoding=mp3`, {
-            method: "POST", signal: AbortSignal.timeout(4000),
+            method: "POST", signal: AbortSignal.timeout(6000),
             headers: { Authorization: `Token ${dg}`, "Content-Type": "application/json" },
             body: JSON.stringify({ text: data.text }),
           });
@@ -283,10 +294,11 @@ export const speak = createServerFn({ method: "POST" })
         } catch (e) { console.error("deepgram err", model, e); }
       }
     }
+    // Fallback: Microsoft Edge neural voice via edge-tts endpoint (never Groq, never browser)
     try {
-      const { EdgeTTS } = await import("edge-tts-universal");
-      const tts = new EdgeTTS(data.text, "en-US-AvaMultilingualNeural");
-      const r = await Promise.race([tts.synthesize(), new Promise<never>((_, rej) => setTimeout(() => rej(new Error("edge timeout")), 7000))]);
+      const { EdgeTTS } = await import("edge-tts-node");
+      const tts = new EdgeTTS({ voice: "en-NG-AbeoNeural" });
+      const r = await tts.synthesize(data.text);
       return { audio: toB64(await r.audio.arrayBuffer()), mime: "audio/mpeg" };
     } catch (e) { console.error("edge tts", e); }
     return none;
